@@ -45,7 +45,7 @@
 
 v0.1.0 是首个公开源码标签，源码中的应用版本仍为 v0.12.1 / epoch 2。源码标签不代表新的 Windows 安装包已发布。
 
-现有公开 Windows 下载仍由[公开分发仓库](https://github.com/Ansel-Poiesis/interaction-rhythm-public/releases/latest)维护；该仓库的二进制版本可能低于本源码版本。请以各自 Release 页面为准。
+本次源码 Release 不提供 Windows 安装包。旧公开分发仓库中的 `v0.11.8` 安装器与便携包已撤下；更早的历史二进制 Release 仍保留其版本记录。要使用当前源码，请按上文从源码构建。
 
 ## 面向 Agent 的协作
 
