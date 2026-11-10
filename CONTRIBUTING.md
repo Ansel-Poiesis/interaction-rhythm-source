@@ -5,7 +5,7 @@ Thanks for helping improve 扣舷-数字节律. Contributions from people using 
 ## Before opening a pull request
 
 1. Describe the user problem and the change.
-2. Include tests for behavior changes when practical.
+2. For each major behavior change, add or update tests in the automated test suite. If a test is not practical, explain why in the pull request. For smaller changes, list the relevant checks you ran.
 3. Run the checks listed in [AGENTS.md](AGENTS.md) and report which ones ran.
 4. Use synthetic fixtures. Do not attach databases, screenshots, logs, exports, email addresses, API keys, OAuth data, or other personal information.
 5. List any copied or generated code, fonts, images, research text, or other third-party materials and their license/source.

@@ -10,6 +10,7 @@ This guide describes the public source tree. It contains no machine-specific pat
 - tests/: automated checks with synthetic/local fixtures.
 - docs/data-and-privacy.md: collection, storage, and outbound-data boundaries.
 - docs/building-from-source.md: environment and verification commands.
+- docs/user-guide.md and docs/bug-reporting.md: basic workflows and safe public issue reporting.
 - docs/reporting/: public report schema, project-authored method rules, and source index.
 
 ## Working safely

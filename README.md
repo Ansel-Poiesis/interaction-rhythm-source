@@ -6,6 +6,8 @@
 
 <p>Windows 桌面工具 · 本地优先 · <a href="LICENSE">MIT</a> · 公开源码 v0.1.0 · 应用版本 v0.12.1</p>
 
+[使用指南](docs/user-guide.md) · [源码运行](docs/building-from-source.md) · [隐私说明](docs/data-and-privacy.md) · [报告缺陷](docs/bug-reporting.md) · [参与贡献](CONTRIBUTING.md)
+
 看见电脑前的动作节律：输入事件、鼠标响应、前台应用停留与时间分布。它帮你回看数字生活，不给效率、健康或人格打分。
 
 “扣舷”取意于“扣舷而歌”：不窥探内容，只听动作留下的轻响。
@@ -43,11 +45,17 @@
 
 v0.1.0 是首个公开源码标签，源码中的应用版本仍为 v0.12.1 / epoch 2。源码标签不代表新的 Windows 安装包已发布。
 
-现有公开 Windows 下载仍由[公开分发仓库](https://github.com/Ansel-Poiesis/interaction-rhythm-public/releases/latest)维护；该仓库的二进制版本可能低于本源码版本。请以各自 Release 页面为准。
+本次源码 Release 不提供 Windows 安装包。旧公开分发仓库中 `v0.11.3`、`v0.11.6`、`v0.11.8` 的安装器与便携包均已撤下；Release/tag 仅保留版本说明，不提供软件包。要使用当前源码，请按上文从源码构建。
+
+公开源码仓库、私有开发工作区与历史分发记录的边界见[项目范围](docs/project-scope.md)。
 
 ## 面向 Agent 的协作
 
 仓库根目录的 [AGENTS.md](AGENTS.md) 提供代码地图、测试命令和数据边界。欢迎人在 Agent 辅助下阅读、修改和贡献；提交前请检查数据、凭据和第三方素材来源。
+
+## 报告问题
+
+普通缺陷请使用[公开 Issue](https://github.com/Ansel-Poiesis/interaction-rhythm-source/issues)；安全漏洞请走 [GitHub 私密漏洞报告](https://github.com/Ansel-Poiesis/interaction-rhythm-source/security/advisories/new)。请勿在公开报告中附上本机数据库、日志、截图、导出文件、邮箱或密钥。
 
 ## 许可证
 

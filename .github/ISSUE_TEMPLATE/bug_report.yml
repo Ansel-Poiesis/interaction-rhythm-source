@@ -1,38 +1,48 @@
 name: Bug report
-description: 报告一个交互节律的问题
-title: "[Bug] "
+description: Report a reproducible defect without sharing private activity data.
+title: "[Bug]: "
 labels: ["bug"]
 body:
-  - type: textarea
-    id: problem
+  - type: markdown
     attributes:
-      label: 问题描述
-      description: 发生了什么？你原本期待它怎么工作？
+      value: |
+        Search existing issues first. Do not attach databases, logs, screenshots, exports, email addresses, API keys, OAuth data, or personal activity records. Use the private security report for suspected vulnerabilities.
+  - type: input
+    id: app-version
+    attributes:
+      label: Application version
+      description: Include the application version and source tag if known.
+      placeholder: 0.12.1 / epoch 2, source tag v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: 复现步骤
-      description: 尽量写出可以重复触发的步骤。
+      label: Steps to reproduce
+      description: Use synthetic or non-private examples.
       placeholder: |
-        1. 打开应用
-        2. 点击 ...
-        3. 看到 ...
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual result
     validations:
       required: true
   - type: input
-    id: version
+    id: frequency
     attributes:
-      label: 版本
-      placeholder: 例如 1.5
-  - type: input
-    id: system
-    attributes:
-      label: 系统
-      placeholder: 例如 Windows 11 24H2
-  - type: textarea
-    id: extra
-    attributes:
-      label: 补充信息
-      description: 可以放截图、日志或其它线索。请避免贴出个人敏感数据。
+      label: Frequency
+      placeholder: Every time, sometimes, or happened once
+    validations:
+      required: false
