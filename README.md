@@ -6,6 +6,8 @@
 
 <p>Windows 桌面工具 · 本地优先 · <a href="LICENSE">MIT</a> · 公开源码 v0.1.0 · 应用版本 v0.12.1</p>
 
+<p align="center"><a href="https://www.bestpractices.dev/projects/16517"><img src="https://www.bestpractices.dev/projects/16517/baseline" alt="OpenSSF Baseline Level 1 badge"></a></p>
+
 [使用指南](docs/user-guide.md) · [源码运行](docs/building-from-source.md) · [隐私说明](docs/data-and-privacy.md) · [报告缺陷](docs/bug-reporting.md) · [参与贡献](CONTRIBUTING.md)
 
 看见电脑前的动作节律：输入事件、鼠标响应、前台应用停留与时间分布。它帮你回看数字生活，不给效率、健康或人格打分。
