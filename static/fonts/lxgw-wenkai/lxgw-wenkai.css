@@ -1,0 +1,18 @@
+/* LXGW WenKai（霞鹜文楷）页头标题字体
+ * 来源: lxgw-wenkai-webfont 1.7.0 (LXGW WenKai v1.250)
+ * 子集仅保留「扣舷-数字节律」等少量字形（v0.11.8 改名时经 scripts/build_lxgw_subset.py 重制），SIL OFL 1.1。
+ */
+@font-face {
+  font-family: 'LXGW WenKai';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./lxgw-wenkai-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'LXGW WenKai';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./lxgw-wenkai-bold.woff2') format('woff2');
+}

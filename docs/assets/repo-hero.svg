@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="560" viewBox="0 0 1440 560" role="img" aria-labelledby="title desc">
+  <title id="title">扣舷-数字节律：看见你的数字手感</title>
+  <desc id="desc">暖白网格纸上，几张浅色便签围绕深绿标题，表现本地记录的数字节律。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#d7d1c3" stroke-width="1" opacity=".32"/>
+    </pattern>
+    <pattern id="speckle" width="92" height="92" patternUnits="userSpaceOnUse">
+      <circle cx="14" cy="20" r="1" fill="#a79f8f" opacity=".12"/>
+      <circle cx="62" cy="55" r=".8" fill="#a79f8f" opacity=".1"/>
+      <circle cx="82" cy="11" r=".7" fill="#a79f8f" opacity=".12"/>
+    </pattern>
+    <style>
+      .sans { font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+      .serif { font-family: "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif; }
+    </style>
+  </defs>
+  <rect width="1440" height="560" rx="28" fill="#f5f2e9"/>
+  <rect width="1440" height="560" rx="28" fill="url(#grid)"/>
+  <rect width="1440" height="560" rx="28" fill="url(#speckle)"/>
+  <rect x="26" y="26" width="1388" height="508" rx="20" fill="none" stroke="#d8d2c5" stroke-width="1.5"/>
+
+  <g transform="rotate(-5 300 285)">
+    <rect x="140" y="170" width="300" height="205" rx="5" fill="#8e8779" opacity=".12"/>
+    <path d="M132 160h300v205l-16-6-18 7-20-7-18 7-18-7-19 7-19-7-18 7-20-7-20 7-18-7-18 7-18-7-18 7V160z" fill="#e9cfc5"/>
+    <text x="162" y="205" class="sans" font-size="14" letter-spacing="2" fill="#5b6a5d">INPUT / 01</text>
+    <text x="162" y="247" class="serif" font-size="24" fill="#2c4537">动作留下轻响</text>
+    <path d="M164 316h14v-28h14v28h14v-54h14v54h14v-18h14v18h14v-41h14v41h14v-65h14v65h14v-23h14v23h14" fill="none" stroke="#53705c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g transform="rotate(4 1134 260)">
+    <rect x="984" y="145" width="278" height="190" rx="5" fill="#8e8779" opacity=".13"/>
+    <path d="M974 134h286v190l-18-7-16 7-18-7-18 7-18-7-19 7-18-7-18 7-18-7-18 7-18-7-18 7-19-7-18 7-18-7V134z" fill="#e5e9d7"/>
+    <text x="1004" y="176" class="sans" font-size="13" letter-spacing="2" fill="#657460">LOCAL / 02</text>
+    <text x="1004" y="216" class="serif" font-size="22" fill="#304638">记录留在本机</text>
+    <text x="1004" y="250" class="sans" font-size="13" fill="#667466">按时间整理，不窥探内容</text>
+    <circle cx="1014" cy="282" r="4" fill="#708371"/>
+    <circle cx="1030" cy="282" r="4" fill="#a4b09a"/>
+    <circle cx="1046" cy="282" r="4" fill="#d1d8ca"/>
+  </g>
+
+  <g transform="rotate(3 1177 424)">
+    <rect x="1075" y="366" width="190" height="118" rx="4" fill="#8e8779" opacity=".12"/>
+    <path d="M1068 358h190v112l-12-5-13 5-13-5-12 5-13-5-12 5-13-5-12 5-13-5-12 5-13-5V358z" fill="#efe3b8"/>
+    <text x="1092" y="392" class="sans" font-size="12" letter-spacing="1.5" fill="#7b7049">RHYTHM / 03</text>
+    <text x="1092" y="425" class="serif" font-size="18" fill="#514c35">看见时间的形状</text>
+    <path d="M1094 447h24m10 0h12m10 0h32m10 0h18m10 0h27" stroke="#b29c56" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <g transform="rotate(-2 728 423)">
+    <rect x="624" y="392" width="202" height="90" rx="4" fill="#8e8779" opacity=".12"/>
+    <path d="M618 384h202v82l-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-13-5V384z" fill="#dbe5df"/>
+    <text x="641" y="417" class="sans" font-size="12" letter-spacing="1.5" fill="#697b70">OPEN SOURCE / 0.1.0</text>
+    <text x="641" y="445" class="serif" font-size="17" fill="#304638">可读 · 可改 · 可复核</text>
+  </g>
+
+  <g text-anchor="middle">
+    <text x="720" y="133" class="sans" font-size="14" letter-spacing="4" fill="#6c796b">KOUXIAN · DIGITAL RHYTHM</text>
+    <path d="M632 157h176" stroke="#c3c7b8" stroke-width="1"/>
+    <text x="720" y="235" class="serif" font-size="56" font-weight="600" fill="#243d30">扣舷-数字节律</text>
+    <text x="720" y="287" class="serif" font-size="28" fill="#506854">看见你的数字手感</text>
+    <text x="720" y="331" class="sans" font-size="15" letter-spacing="1" fill="#778073">Windows 桌面工具 · 本地优先 · 只听动作留下的节律</text>
+    <path d="M690 359c19 15 41 15 60 0" fill="none" stroke="#9aa891" stroke-width="1.5" stroke-linecap="round"/>
+    <circle cx="720" cy="365" r="3" fill="#788c79"/>
+  </g>
+
+  <text x="70" y="497" class="sans" font-size="12" letter-spacing="2" fill="#919081">LOCAL FIRST</text>
+  <text x="1370" y="497" class="sans" font-size="12" letter-spacing="2" text-anchor="end" fill="#919081">A QUIET VIEW OF DIGITAL LIFE</text>
+</svg>

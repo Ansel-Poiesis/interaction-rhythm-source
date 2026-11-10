@@ -1,0 +1,89 @@
+{
+  "version": "1.0.0",
+  "entries": [
+    {
+      "id": "METHODS",
+      "title": "Project-authored analysis methods",
+      "url": "docs/reporting/method-library.json",
+      "scope": "Product heuristics and metric interpretation rules. These are not independent empirical validation."
+    },
+    {
+      "id": "NIST",
+      "title": "Measures of Scale",
+      "url": "https://www.itl.nist.gov/div898/handbook/eda/section3/eda356.htm",
+      "scope": "Statistical terminology for robust measures of dispersion."
+    },
+    {
+      "id": "AW",
+      "title": "ActivityWatch FAQ",
+      "url": "https://docs.activitywatch.net/en/latest/faq.html",
+      "scope": "A public example of documenting configurable idle-detection rules."
+    },
+    {
+      "id": "WHO",
+      "title": "Burn-out an occupational phenomenon: International Classification of Diseases",
+      "url": "https://www.who.int/standards/classifications/frequently-asked-questions/burn-out-an-occupational-phenomenon",
+      "scope": "A boundary reference. The app does not diagnose burnout."
+    },
+    {
+      "id": "MARK2008",
+      "title": "The Cost of Interrupted Work: More Speed and Stress",
+      "url": "https://doi.org/10.1145/1357054.1357072",
+      "scope": "Context for interruption research; its findings are not inferred from this app's process intervals."
+    },
+    {
+      "id": "IQBAL2007",
+      "title": "The Effects of Breaks on Task Resumption",
+      "url": "https://doi.org/10.1145/1240624.1240708",
+      "scope": "Context for task resumption research; the app does not observe tasks or infer resumption cost."
+    },
+    {
+      "id": "stage-based-personal-informatics",
+      "title": "A stage-based model of personal informatics systems",
+      "url": "https://doi.org/10.1145/1753326.1753409",
+      "scope": "Reference metadata only; no article text is redistributed."
+    },
+    {
+      "id": "quantified-self-collection-exploration",
+      "title": "Understanding quantified-selfers' practices in collecting and exploring personal data",
+      "url": "https://doi.org/10.1145/2556288.2557372",
+      "scope": "Reference metadata only; no article text is redistributed."
+    },
+    {
+      "id": "flexible-minimalist-self-tracking",
+      "title": "Flexible Minimalist Self-Tracking to Support Individual Reflection",
+      "url": "https://doi.org/10.1145/3660339",
+      "scope": "Reference metadata only; no article text is redistributed."
+    },
+    {
+      "id": "reflection-nature-critical-examination",
+      "title": "Personal informatics and reflection: a critical examination of the nature of reflection",
+      "url": "https://doi.org/10.1145/2468356.2468715",
+      "scope": "Reference metadata only; no article text is redistributed."
+    },
+    {
+      "id": "people-like-me-cohort-comparison",
+      "title": "People Like Me: Designing for Reflection on Aggregate Cohort Data in Personal Informatics Systems",
+      "url": "https://doi.org/10.1145/3264917",
+      "scope": "Reference metadata only; no article text is redistributed."
+    },
+    {
+      "id": "reflection-theory-practice-gaps",
+      "title": "Reflection in Theory and Reflection in Practice: An Exploration of the Gaps in Reflection Support among Personal Informatics Apps",
+      "url": "https://doi.org/10.1145/3491102.3501991",
+      "scope": "Reference metadata only; no article text is redistributed."
+    },
+    {
+      "id": "daily-mood-variability-stability",
+      "title": "The stability of mood variability: A spectral analytic approach to daily mood assessments",
+      "url": "https://doi.org/10.1037/0022-3514.52.6.1195",
+      "scope": "Reference metadata only; the app does not infer mood."
+    },
+    {
+      "id": "weekend-recovery-rituals",
+      "title": "Recovery, health, and job performance: Effects of weekend experiences",
+      "url": "https://doi.org/10.1037/1076-8998.10.3.187",
+      "scope": "Reference metadata only; the app does not infer health or recovery quality."
+    }
+  ]
+}

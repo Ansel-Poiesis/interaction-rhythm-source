@@ -1,0 +1,22 @@
+name: Feature request
+description: 提出一个新功能或体验改进
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: 你想解决什么问题？
+      description: 请从使用场景说起，而不是只写按钮或页面。
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 可能的方案
+      description: 如果你已经有想法，可以写在这里。
+  - type: textarea
+    id: privacy
+    attributes:
+      label: 隐私影响
+      description: 这个功能是否需要记录新的数据？如果需要，请说明。

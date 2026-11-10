@@ -1,0 +1,38 @@
+name: Bug report
+description: 报告一个交互节律的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述
+      description: 发生了什么？你原本期待它怎么工作？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量写出可以重复触发的步骤。
+      placeholder: |
+        1. 打开应用
+        2. 点击 ...
+        3. 看到 ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      placeholder: 例如 1.5
+  - type: input
+    id: system
+    attributes:
+      label: 系统
+      placeholder: 例如 Windows 11 24H2
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 可以放截图、日志或其它线索。请避免贴出个人敏感数据。

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:digitalrhythm:report-evidence:1",
+  "title": "DigitalRhythm local report evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "metric_version", "timezone", "generated_at", "privacy_profile", "delivery", "period", "reference", "source", "parameters", "daily", "signals", "facts"],
+  "properties": {
+    "contract_version": {"const": "DR-REPORT/1.0"},
+    "metric_version": {"const": "0.2.0"},
+    "timezone": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string", "minLength": 20},
+    "privacy_profile": {"const": "local_private"},
+    "delivery": {"const": "none"},
+    "period": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "start", "end_exclusive"],
+      "properties": {"kind": {"enum": ["weekly", "monthly"]}, "start": {"$ref": "#/$defs/date"}, "end_exclusive": {"$ref": "#/$defs/date"}}
+    },
+    "reference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["start", "end_exclusive", "calendar_days"],
+      "properties": {"start": {"$ref": "#/$defs/date"}, "end_exclusive": {"$ref": "#/$defs/date"}, "calendar_days": {"const": 28}}
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["snapshot_sha256", "collector_versions"],
+      "properties": {"snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "collector_versions": {"type": "array", "uniqueItems": true, "maxItems": 1, "items": {"type": "string"}}}
+    },
+    "parameters": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reference_days", "window_seconds", "minimum_window_healthy_ratio", "minimum_day_healthy_ratio", "minimum_tool_input_minutes", "minimum_hour_healthy_seconds", "continuity_gap_seconds", "peak_quantile", "low_quantile", "followup_days"],
+      "properties": {
+        "reference_days": {"const": 28}, "window_seconds": {"const": 900},
+        "minimum_window_healthy_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+        "minimum_day_healthy_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+        "minimum_tool_input_minutes": {"type": "integer", "minimum": 1, "maximum": 15},
+        "minimum_hour_healthy_seconds": {"type": "number", "minimum": 0, "maximum": 3600},
+        "continuity_gap_seconds": {"type": "number", "minimum": 0},
+        "peak_quantile": {"type": "number", "minimum": 0, "maximum": 1},
+        "low_quantile": {"type": "number", "minimum": 0, "maximum": 1},
+        "followup_days": {"type": "integer", "minimum": 1}
+      }
+    },
+    "daily": {"type": "array", "items": {"$ref": "#/$defs/day"}},
+    "signals": {
+      "type": "object", "additionalProperties": false,
+      "required": ["period_counts", "daily_reference", "tool_fingerprints", "volume_decomposition", "clock_profile", "weekly_variation", "daily_sequence", "workflow", "state_time", "daily_rhythm", "highlights"],
+      "properties": {
+        "period_counts": {"type": "object", "required": ["current", "reference", "previous"], "additionalProperties": {"$ref": "#/$defs/periodTotals"}},
+        "daily_reference": {"type": "object", "required": ["all", "MonFri", "SatSun"], "additionalProperties": {"type": "object", "required": ["keyboard", "click", "scroll"], "additionalProperties": {"$ref": "#/$defs/profile"}}},
+        "tool_fingerprints": {"type": "object", "required": ["reference", "current"]},
+        "volume_decomposition": {"type": "array", "items": {"type": "object", "required": ["tool", "reference", "current", "reference_period_scale", "minutes_factor", "count_factors", "density_factors"]}},
+        "clock_profile": {"type": "object", "required": ["reference", "current"], "additionalProperties": {"type": "array", "minItems": 24, "maxItems": 24}},
+        "weekly_variation": {"type": "array"},
+        "daily_sequence": {"type": "object", "required": ["high_threshold", "low_threshold", "days"]},
+        "workflow": {"type": "object", "required": ["origins", "hub", "current", "previous"]},
+        "state_time": {
+          "type": "object", "additionalProperties": false,
+          "required": ["bands", "day_rung_thresholds", "day_rungs", "windows"],
+          "properties": {
+            "bands": {"type": "object", "additionalProperties": false, "required": ["leisure_kb_below", "steady_kb_below", "fluent_kb_below", "intense_kb_below"], "properties": {"leisure_kb_below": {"const": 15}, "steady_kb_below": {"const": 50}, "fluent_kb_below": {"const": 100}, "intense_kb_below": {"const": 130}}},
+            "day_rung_thresholds": {"type": "object", "additionalProperties": false, "required": ["normal_min", "diligent_min", "elite_min", "frenzy_min"], "properties": {"normal_min": {"const": 5000}, "diligent_min": {"const": 10000}, "elite_min": {"const": 15000}, "frenzy_min": {"const": 25000}}},
+            "day_rungs": {"type": "object", "required": ["current", "reference"], "additionalProperties": {"type": "object", "propertyNames": {"enum": ["leisure", "normal", "diligent", "elite", "frenzy"]}, "additionalProperties": {"type": "object", "required": ["days", "dates"], "additionalProperties": false, "properties": {"days": {"type": "integer", "minimum": 0}, "dates": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/date"}}}}}},
+            "windows": {"type": "object", "required": ["current", "reference"], "additionalProperties": {"type": "object", "propertyNames": {"enum": ["leisure", "steady", "fluent", "intense", "frenzy"]}, "additionalProperties": {"$ref": "#/$defs/stateWindow"}}}
+          }
+        },
+        "daily_rhythm": {
+          "type": "object", "additionalProperties": false, "required": ["current", "reference"],
+          "properties": {
+            "current": {"$ref": "#/$defs/rhythm"}, "reference": {"$ref": "#/$defs/rhythm"}
+          }
+        },
+        "highlights": {
+          "type": "object", "additionalProperties": false,
+          "required": ["golden_hour_threshold", "golden_hours", "top_hour", "day_rungs", "tool_share_top_mover", "dense_state_share", "workflow_loops"],
+          "properties": {
+            "golden_hour_threshold": {"const": 25.0},
+            "golden_hours": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["hour", "median_kb_minutes_per_healthy_hour"], "properties": {"hour": {"type": "integer", "minimum": 0, "maximum": 23}, "median_kb_minutes_per_healthy_hour": {"type": "number", "minimum": 0}}}},
+            "top_hour": {"type": ["object", "null"], "additionalProperties": false, "required": ["hour", "keyboard_minutes", "days_present"], "properties": {"hour": {"type": "integer", "minimum": 0, "maximum": 23}, "keyboard_minutes": {"type": "integer", "minimum": 0}, "days_present": {"type": "integer", "minimum": 0}}},
+            "day_rungs": {"type": "object", "additionalProperties": false, "required": ["elite", "frenzy"], "properties": {"elite": {"$ref": "#/$defs/rungDays"}, "frenzy": {"$ref": "#/$defs/rungDays"}}},
+            "tool_share_top_mover": {"type": ["object", "null"], "additionalProperties": false, "required": ["app", "reference_share", "current_share"], "properties": {"app": {"type": "string", "minLength": 1}, "reference_share": {"type": ["number", "null"], "minimum": 0, "maximum": 1}, "current_share": {"type": ["number", "null"], "minimum": 0, "maximum": 1}}},
+            "dense_state_share": {"type": "object", "additionalProperties": false, "required": ["current", "reference"], "properties": {"current": {"type": ["number", "null"], "minimum": 0, "maximum": 1}, "reference": {"type": ["number", "null"], "minimum": 0, "maximum": 1}}},
+            "workflow_loops": {"type": "object", "additionalProperties": false, "required": ["current", "previous"], "properties": {"current": {"type": "integer", "minimum": 0}, "previous": {"type": "integer", "minimum": 0}}}
+          }
+        }
+      }
+    },
+    "facts": {
+      "type": "array", "minItems": 11, "maxItems": 11,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "signal", "unit", "denominator", "method_ids", "research_ids"],
+        "properties": {
+          "id": {"enum": ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08", "F09", "F10", "F11"]},
+          "signal": {"type": "string"}, "unit": {"type": "string"}, "denominator": {"type": "string"},
+          "method_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["M01", "M02", "M03", "M04", "M05", "M06", "M07", "M08"]}},
+          "research_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+        },
+        "oneOf": [
+          {"properties": {"id": {"const": "F01"}, "signal": {"const": "period_counts"}, "unit": {"const": "event"}, "denominator": {"const": "calendar_period"}}},
+          {"properties": {"id": {"const": "F02"}, "signal": {"const": "tool_fingerprints"}, "unit": {"const": "event_per_input_minute"}, "denominator": {"const": "per_tool_input_present_minute_in_qualified_15m_window"}}},
+          {"properties": {"id": {"const": "F03"}, "signal": {"const": "volume_decomposition"}, "unit": {"const": "factor"}, "denominator": {"const": "same_length_equivalent_of_reference_period"}}},
+          {"properties": {"id": {"const": "F04"}, "signal": {"const": "weekly_variation"}, "unit": {"const": "relative_iqr"}, "denominator": {"const": "daily_keyboard_median"}}},
+          {"properties": {"id": {"const": "F05"}, "signal": {"const": "clock_profile"}, "unit": {"const": "keyboard_minutes_per_healthy_hour"}, "denominator": {"const": "healthy_clock_hour"}}},
+          {"properties": {"id": {"const": "F06"}, "signal": {"const": "daily_sequence"}, "unit": {"const": "event"}, "denominator": {"const": "recorded_calendar_day"}}},
+          {"properties": {"id": {"const": "F07"}, "signal": {"const": "workflow"}, "unit": {"const": "process_return"}, "denominator": {"const": "continuous_foreground_sequence"}}},
+          {"properties": {"id": {"const": "F08"}, "signal": {"const": "record_quality"}, "unit": {"const": "second"}, "denominator": {"const": "collector_responsibility_interval"}}},
+          {"properties": {"id": {"const": "F09"}, "signal": {"const": "state_time"}, "unit": {"const": "input_minute"}, "denominator": {"const": "per_app_qualified_window_by_keyboard_density_state"}}},
+          {"properties": {"id": {"const": "F10"}, "signal": {"const": "daily_rhythm"}, "unit": {"const": "minute"}, "denominator": {"const": "observed_calendar_day"}}},
+          {"properties": {"id": {"const": "F11"}, "signal": {"const": "highlights"}, "unit": {"const": "rank"}, "denominator": {"const": "period_comparison_and_absolute_ranks"}}}
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "counts": {"type": "object", "additionalProperties": false, "required": ["keyboard", "click", "scroll"], "properties": {"keyboard": {"type": "integer", "minimum": 0}, "click": {"type": "integer", "minimum": 0}, "scroll": {"type": "integer", "minimum": 0}}},
+    "profile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["n", "n_days", "dates", "stage", "median", "p25", "p75", "iqr", "mad"],
+      "properties": {"n": {"type": "integer", "minimum": 0}, "n_days": {"type": "integer", "minimum": 0}, "dates": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/date"}}, "stage": {"enum": ["facts_only", "initial", "reference"]}, "median": {"type": ["number", "null"]}, "p25": {"type": ["number", "null"]}, "p75": {"type": ["number", "null"]}, "iqr": {"type": ["number", "null"]}, "mad": {"type": ["number", "null"]}}
+    },
+    "day": {
+      "type": "object", "additionalProperties": false,
+      "required": ["date", "calendar_group", "counts", "input_minutes", "keyboard_minutes", "unverified_input_counts", "input_minutes_without_health", "healthy_seconds", "expected_seconds", "unknown_seconds", "quality"],
+      "properties": {"date": {"$ref": "#/$defs/date"}, "calendar_group": {"enum": ["MonFri", "SatSun"]}, "counts": {"$ref": "#/$defs/counts"}, "unverified_input_counts": {"$ref": "#/$defs/counts"}, "input_minutes_without_health": {"type": "integer", "minimum": 0}, "input_minutes": {"type": "integer", "minimum": 0}, "keyboard_minutes": {"type": "integer", "minimum": 0}, "healthy_seconds": {"type": "number", "minimum": 0}, "expected_seconds": {"type": "number", "minimum": 0}, "unknown_seconds": {"type": "number", "minimum": 0}, "quality": {"enum": ["observed", "unobserved"]}}
+    },
+    "periodTotals": {
+      "type": "object", "additionalProperties": false,
+      "required": ["calendar_days", "observed_days", "counts", "input_minutes", "healthy_seconds"],
+      "properties": {"calendar_days": {"type": "integer", "minimum": 0}, "observed_days": {"type": "integer", "minimum": 0}, "counts": {"$ref": "#/$defs/counts"}, "input_minutes": {"type": "integer", "minimum": 0}, "healthy_seconds": {"type": "number", "minimum": 0}}
+    },
+    "stateWindow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["windows", "input_minutes", "counts", "median_density", "top_apps"],
+      "properties": {
+        "windows": {"type": "integer", "minimum": 0},
+        "input_minutes": {"type": "integer", "minimum": 0},
+        "counts": {"$ref": "#/$defs/counts"},
+        "median_density": {"type": "number", "minimum": 0},
+        "top_apps": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["app", "input_minutes", "keyboard"], "properties": {"app": {"type": "string", "minLength": 1}, "input_minutes": {"type": "integer", "minimum": 0}, "keyboard": {"type": "integer", "minimum": 0}}}}
+      }
+    },
+    "rungDays": {
+      "type": ["object", "null"], "additionalProperties": false, "required": ["days", "dates"],
+      "properties": {"days": {"type": "integer", "minimum": 0}, "dates": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/date"}}}
+    },
+    "rhythm": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observed_days", "with_keyboard_days", "avg_input_minutes", "avg_keyboard_minutes", "first_keyboard", "last_keyboard", "avg_keyboard_span_minutes", "longest_span_day", "hours"],
+      "properties": {
+        "observed_days": {"type": "integer", "minimum": 0},
+        "with_keyboard_days": {"type": "integer", "minimum": 0},
+        "avg_input_minutes": {"type": ["number", "null"], "minimum": 0},
+        "avg_keyboard_minutes": {"type": ["number", "null"], "minimum": 0},
+        "first_keyboard": {"$ref": "#/$defs/profile"},
+        "last_keyboard": {"$ref": "#/$defs/profile"},
+        "avg_keyboard_span_minutes": {"type": ["number", "null"], "minimum": 0},
+        "longest_span_day": {"type": ["object", "null"], "additionalProperties": false, "required": ["date", "span_minutes"], "properties": {"date": {"$ref": "#/$defs/date"}, "span_minutes": {"type": "integer", "minimum": 0}}},
+        "hours": {"type": "array", "minItems": 24, "maxItems": 24, "items": {"type": "object", "additionalProperties": false, "required": ["hour", "keyboard_minutes", "days_present"], "properties": {"hour": {"type": "integer", "minimum": 0, "maximum": 23}, "keyboard_minutes": {"type": "integer", "minimum": 0}, "days_present": {"type": "integer", "minimum": 0}}}}
+      }
+    }
+  }
+}

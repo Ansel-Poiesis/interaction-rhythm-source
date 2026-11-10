@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Virtual environment
+.venv/
+venv/
+node_modules/
+
+# Runtime data (user-specific)
+data/
+*.db
+*.db-wal
+*.db-shm
+.tmp-chrome-*/
+tmp/
+
+# Build artifacts
+app.ico
+*.log
+startup-error.log
+source-test.*
+.build-data-backup/
+.bridge-build/
+debug-*.png
+artifacts/
+installer/output/
+installer/temp/
+*.pfx
+*.p12
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+desktop.ini
