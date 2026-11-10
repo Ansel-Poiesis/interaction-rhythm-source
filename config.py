@@ -3,7 +3,7 @@ import os
 
 APP_NAME = "扣舷-数字节律"
 APP_ICON_TEXT = "律"
-APP_VERSION = "0.12.1"
+APP_VERSION = "0.1.0"
 APP_VERSION_EPOCH = 2
 DATA_SCHEMA_VERSION = 2
 APP_MUTEX_NAME = os.getenv("INTERACTION_RHYTHM_MUTEX_NAME", r"Local\Kouxian.DigitalRhythm.SingleInstance")

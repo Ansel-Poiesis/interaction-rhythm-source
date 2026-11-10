@@ -2,13 +2,15 @@
   <img src="docs/assets/repo-hero.svg" alt="扣舷-数字节律：看见你的数字手感" width="100%">
 </div>
 
-# 扣舷-数字节律
+# 扣舷-数字节律 / Digital Rhythm
 
-<p>Windows 桌面工具 · 本地优先 · <a href="LICENSE">MIT</a> · 公开源码 v0.1.0 · 应用版本 v0.12.1</p>
+<p>Windows desktop app · local-first personal informatics · <a href="LICENSE">MIT</a> · app/source v0.1.0 · by Ansel · <a href="https://keeppoiesis.com/">keeppoiesis.com</a></p>
 
 <p align="center"><a href="https://www.bestpractices.dev/projects/16517"><img src="https://www.bestpractices.dev/projects/16517/baseline" alt="OpenSSF Baseline Level 1 badge"></a></p>
 
 [使用指南](docs/user-guide.md) · [源码运行](docs/building-from-source.md) · [隐私说明](docs/data-and-privacy.md) · [报告缺陷](docs/bug-reporting.md) · [参与贡献](CONTRIBUTING.md)
+
+作者：**Ansel** · 个人网站：[keeppoiesis.com](https://keeppoiesis.com/) · 检索关键词：扣舷-数字节律、Digital Rhythm、Windows desktop、local-first、personal informatics。
 
 看见电脑前的动作节律：输入事件、鼠标响应、前台应用停留与时间分布。它帮你回看数字生活，不给效率、健康或人格打分。
 
@@ -45,9 +47,9 @@
 
 ## 版本与下载
 
-v0.1.0 是首个公开源码标签，源码中的应用版本仍为 v0.12.1 / epoch 2。源码标签不代表新的 Windows 安装包已发布。
+v0.1.0 是扣舷-数字节律公开软件版本，运行时版本为 v0.1.0 / epoch 2。此公开版本仅提供源码；仓库当前没有 Windows 安装器或便携包。
 
-本次源码 Release 不提供 Windows 安装包。旧公开分发仓库中 `v0.11.3`、`v0.11.6`、`v0.11.8` 的安装器与便携包均已撤下；Release/tag 仅保留版本说明，不提供软件包。要使用当前源码，请按上文从源码构建。
+本次源码 Release 不提供 Windows 安装包。旧公开分发仓库的 Release/tag 元数据已按权利人指示清除，提交历史保留；该仓库不再提供软件包。要使用当前源码，请按上文从源码构建。
 
 公开源码仓库、私有开发工作区与历史分发记录的边界见[项目范围](docs/project-scope.md)。
 

@@ -17,8 +17,8 @@ class BrandContractTests(unittest.TestCase):
             r"Local\Kouxian.DigitalRhythm.SingleInstance",
         )
 
-    def test_current_application_version_is_not_the_source_tag(self):
-        self.assertEqual(config.APP_VERSION, "0.12.1")
+    def test_public_application_version_matches_initial_release(self):
+        self.assertEqual(config.APP_VERSION, "0.1.0")
         self.assertEqual(config.APP_VERSION_EPOCH, 2)
 
     def test_source_builds_have_no_update_feed_by_default(self):
