@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add a user guide, a privacy-safe bug-reporting guide, and a structured GitHub issue template.
+- Clarify the expected automated-test policy for major behavior changes.
+
 ## v0.1.0 — 2026-11-10
 
 - First public source snapshot.
