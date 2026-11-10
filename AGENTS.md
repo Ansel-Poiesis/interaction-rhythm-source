@@ -18,7 +18,7 @@ This guide describes the public source tree. It contains no machine-specific pat
 - Do not commit data/, dist/, build/, .venv/, tmp/, databases, logs, screenshots, mail, settings, exports, keys, or tokens.
 - Do not start the desktop app unless the task explicitly requires a manual run. A normal launch begins local activity collection.
 - Use synthetic data and temporary directories for tests. Never use a real database to validate changes.
-- Source tag v0.1.0 is separate from the application's 0.12.1 / epoch 2 runtime version.
+- Public software version v0.1.0 uses the existing epoch 2 update ordering; this source release has no Windows binary.
 - The updater is disabled by default for source builds; do not point it at private feeds.
 - Check source and license for any external code, data, font, image, research text, or executable added to the repository.
 

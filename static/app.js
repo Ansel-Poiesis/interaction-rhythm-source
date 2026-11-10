@@ -2151,6 +2151,18 @@ async function saveSupportUrl(){
     renderSettings(SETTINGS_STATE);
   }catch(e){showModal(t('settings'),'<div class="modal-error">'+esc(e.message||t('settingsSaveFailed'))+'</div>')}
 }
+async function openCreatorWebsite(event){
+  if(event)event.preventDefault();
+  var value='https://keeppoiesis.com/';
+  try{
+    if(window.pywebview&&window.pywebview.api&&window.pywebview.api.open_url){
+      var opened=await window.pywebview.api.open_url(value);
+      if(opened)return false;
+    }
+    window.open(value,'_blank','noopener,noreferrer');
+  }catch(e){window.open(value,'_blank','noopener,noreferrer')}
+  return false;
+}
 async function openSupport(){
   var value=String((SETTINGS_STATE&&SETTINGS_STATE.support_url)||'').trim();
   if(!value){

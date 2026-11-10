@@ -75,6 +75,13 @@
       padding:12px 14px calc(12px + var(--safe-bottom));
       gap:9px;min-height:0;overflow:hidden;margin:0 auto;
     }
+    .app-watermark{
+      position:fixed;left:50%;bottom:calc(1px + var(--safe-bottom));z-index:5;transform:translateX(-50%);
+      display:flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:999px;
+      background:color-mix(in srgb,var(--bg) 92%,transparent);color:var(--text4);font-size:9px;line-height:1;white-space:nowrap;
+    }
+    .app-watermark a{color:inherit;text-decoration:none}
+    .app-watermark a:hover{color:var(--text2);text-decoration:underline}
     body.nativebar .header{display:none}
     body.nativebar .wrap{padding-top:11px;grid-template-rows:58px 120px minmax(152px,1fr) 340px}
 
