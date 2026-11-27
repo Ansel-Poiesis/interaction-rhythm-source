@@ -383,8 +383,8 @@ class ApplicationService:
     def application_detail(self, app: str, date: str) -> dict:
         return self.db.app_detail(app, date)
 
-    def application_analysis(self, app: str, days: int) -> dict:
-        return self.db.app_analysis(app, days)
+    def application_analysis(self, app: str, days: int, end_date: str = "") -> dict:
+        return self.db.app_analysis(app, days, end_date)
 
     def export(self, days: int) -> dict:
         return self.db.export_data(days)

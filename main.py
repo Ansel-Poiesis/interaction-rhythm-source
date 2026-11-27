@@ -515,14 +515,25 @@ def main():
         os._exit(0)
 
     log_event("startup_server_binding", {"port": PORT})
-    try:
-        server = StatsServer(db, PORT, shutdown_callback=exit_for_update, shutdown_token=_SHUTDOWN_TOKEN)
-    except OSError as e:
+    server = None
+    conflict = None
+    # 第三方程序可能短暂占用本机端口；后台启动做有界重试（6 次、间隔 30 秒），
+    # 避免一次瞬时端口冲突造成长时间采集断档；前台启动保持立即反馈。
+    for attempt in range(1, 7 if background_start else 2):
+        try:
+            server = StatsServer(db, PORT, shutdown_callback=exit_for_update, shutdown_token=_SHUTDOWN_TOKEN)
+            break
+        except OSError as e:
+            conflict = e
+            log_event("startup_port_conflict", {"port": PORT, "background": background_start,
+                                                "attempt": attempt, "error": str(e)})
+            if background_start and attempt < 6:
+                time.sleep(30)
+    if server is None:
         # 已有实例（锁被占）→ 恢复其窗口；否则视为端口被其他程序占用。
         if background_start or restore_existing_window(retries=10, delay=0.2):
             return
-        log_event("startup_port_conflict", {"port": PORT, "error": str(e)})
-        _show_port_conflict_dialog(str(e))
+        _show_port_conflict_dialog(str(conflict))
         return
 
     server.start()

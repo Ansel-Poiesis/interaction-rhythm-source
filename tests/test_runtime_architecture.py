@@ -9,6 +9,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -144,6 +145,46 @@ class ObservationBufferTests(unittest.TestCase):
 
         self.assertIn("degraded", seen)
         self.assertEqual(database.states[-1], ("system", "degraded"))
+
+    def test_system_state_loop_survives_tick_exception_and_records_degraded(self):
+        # 回归：单次 _tick 异常不得杀死健康监控线程，
+        # 必须写入 system/degraded 留痕并继续循环。
+        class FakeDB:
+            def __init__(self):
+                self.states = []
+
+            def record_collector_state(self, component, state, *_args, **_kwargs):
+                self.states.append((component, state))
+
+            def add_observation_segment(self, *_args, **_kwargs):
+                pass
+
+        database = FakeDB()
+        monitor = SystemStateMonitor(database, lambda: False)
+        calls = {"count": 0}
+
+        def flaky_tick(_now, _monotonic, _resolved=None):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise sqlite3.OperationalError("database is locked")
+            monitor._db.record_collector_state("system", "running", "heartbeat")
+
+        class FakeStop:
+            def __init__(self):
+                self.rounds = 0
+
+            def wait(self, _timeout):
+                self.rounds += 1
+                return self.rounds > 2  # 两次迭代后退出循环
+
+        monitor._tick = flaky_tick
+        monitor._stop = FakeStop()
+
+        monitor._loop()  # 不得抛出
+
+        self.assertEqual(calls["count"], 2)
+        self.assertIn(("system", "degraded"), database.states)
+        self.assertEqual(database.states[-1], ("system", "running"))
 
     def test_benchmark_marker_round_trips_without_matching_ordinary_input(self):
         marker = benchmark_extra_info(42)
@@ -411,6 +452,64 @@ class SQLiteV2Tests(unittest.TestCase):
         self.assertEqual(coverage["unknown_seconds"], 30)
         self.assertEqual(coverage["ratio"], 0.5)
 
+    def test_six_day_heatmap_uses_clipped_local_collector_seconds(self):
+        midnight = datetime(2026, 7, 20)
+        before = midnight - timedelta(minutes=10)
+        after = midnight + timedelta(hours=1, minutes=10)
+        self.db.add_observation_segment(
+            "collector", "running", before.astimezone(timezone.utc), after.astimezone(timezone.utc)
+        )
+        self.db.add_observation_segment("collector", "degraded", after, after + timedelta(minutes=5))
+        self.db.add_observation_segment("collector", "locked", after + timedelta(minutes=5), after + timedelta(hours=1))
+        self.db.add_observation_segment("other", "running", midnight, midnight + timedelta(hours=4))
+        self.db._conn.execute("INSERT INTO keystrokes(ts,count) VALUES(?,?)", ("2026-07-20T03:01:00", 7))
+
+        queries = []
+        self.db._conn.set_trace_callback(queries.append)
+        try:
+            days = self.db.heatmap_data(6, end_date="2026-07-20")
+        finally:
+            self.db._conn.set_trace_callback(None)
+        self.assertEqual([len(day["coverage_hourly"]) for day in days], [24] * 6)
+        self.assertEqual(days[-2]["coverage_hourly"][23], 600)
+        self.assertEqual(days[-1]["coverage_hourly"][:4], [3600, 600, 0, 0])
+        self.assertEqual(days[-1]["hourly"][:4], [0, 0, 0, 7])
+        self.assertEqual(sum("observation_segments" in query for query in queries), 1)
+        for hour in (0, 1, 2, 3):
+            detail = self.db.hour_detail("2026-07-20", hour)
+            self.assertEqual(detail["coverage"]["observed_seconds"], days[-1]["coverage_hourly"][hour])
+            self.assertEqual(detail["responses"], days[-1]["hourly"][hour])
+        partial = self.db.hour_detail("2026-07-20", 1)["coverage"]
+        self.assertEqual((partial["healthy_seconds"], partial["unknown_seconds"], partial["expected_seconds"]),
+                         (600, 300, 900))
+
+    def test_archived_daily_counts_never_turn_into_observed_silent_hours(self):
+        day = datetime(2026, 7, 20)
+        self.db.add_observation_segment("collector", "running", day, day + timedelta(hours=1))
+        self.db._conn.execute("INSERT INTO daily_totals VALUES ('2026-07-20',12,0,12,'2026-07-21')")
+        self.db._conn.execute("INSERT INTO keystrokes(ts,count) VALUES('2026-07-20T23:01:00',2)")
+        result = self.db.heatmap_data(1, end_date="2026-07-20")[0]
+        self.assertEqual(result["coverage_hourly"], [None] * 24)
+        self.assertEqual(result["hourly"][23], 2)
+        detail = self.db.hour_detail("2026-07-20", 0)["coverage"]
+        self.assertIsNone(detail["observed_seconds"])
+        self.assertEqual(detail["healthy_seconds"], 3600)
+
+    def test_overlapping_heartbeats_and_unknown_time_are_not_counted_twice(self):
+        start = datetime(2026, 7, 20, 9)
+        self.db.add_observation_segment("collector", "running", start, start + timedelta(minutes=30))
+        self.db.add_observation_segment("collector", "running", start + timedelta(minutes=10), start + timedelta(minutes=30))
+        self.db.add_observation_segment("collector", "unknown", start + timedelta(minutes=20), start + timedelta(minutes=35))
+        detail = self.db.hour_detail("2026-07-20", 9)["coverage"]
+        self.assertEqual((detail["observed_seconds"], detail["unknown_seconds"], detail["expected_seconds"]),
+                         (1200, 900, 2100))
+        self.assertEqual(self.db.heatmap_data(1, end_date="2026-07-20")[0]["coverage_hourly"][9], 1200)
+        self.assertNotIn("coverage_hourly", self.db.export_data(1)["heatmap"][0])
+
+    def test_older_empty_calendar_date_has_no_observed_hours(self):
+        self.assertEqual(self.db.heatmap_data(1, end_date="1960-06-15")[0]["coverage_hourly"], [0] * 24)
+        self.assertEqual(self.db.hour_detail("1960-06-15", 9)["coverage"]["observed_seconds"], 0)
+
     def test_foreground_interval_is_clipped_at_local_midnight(self):
         start = datetime(2026, 7, 20, 23, 59, 30)
         self.db.add_foreground_interval(
@@ -492,6 +591,35 @@ class SQLiteV2Tests(unittest.TestCase):
         self.assertEqual(result["total_seconds"], 180)
         # 00:00-02:00 之间运行时两行可能分属两个日期桶，只断言窗口内总量
         self.assertEqual(sum(d["seconds"] for d in result["daily"]), 180)
+
+    def test_wal_is_ready_before_concurrent_dashboard_reads(self):
+        self.db.add_keystrokes(3, "Fixture.exe")
+        path = self.db.path
+        self.assertEqual(self.db._conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+        self.db.close()
+        legacy = sqlite3.connect(path)
+        try:
+            self.assertEqual(legacy.execute("PRAGMA journal_mode=DELETE").fetchone()[0], "delete")
+        finally:
+            legacy.close()
+        self.db = DB(path)
+        self.assertEqual(self.db._conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+        barrier = threading.Barrier(8)
+        def read_dashboard():
+            try:
+                barrier.wait(timeout=5)
+                return self.db.today_stats()["keystrokes"]
+            finally:
+                self.db.close_thread_connection()
+
+        self.db._conn.execute("BEGIN IMMEDIATE")
+        try:
+            with ThreadPoolExecutor(max_workers=8) as workers:
+                reads = [workers.submit(read_dashboard) for _ in range(8)]
+                self.assertEqual([read.result(timeout=10) for read in reads], [3] * 8)
+        finally:
+            self.db._conn.rollback()
 
     def test_close_releases_connections_created_by_worker_threads(self):
         worker = threading.Thread(target=self.db.today_stats)

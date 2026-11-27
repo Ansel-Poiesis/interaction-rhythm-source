@@ -11,11 +11,13 @@ function shiftDateIso(date,delta){var d=new Date((date||todayIso())+'T00:00:00')
 var selectedDate=todayIso();
 var userPinnedDate=false;
 var lastKnownToday=todayIso();
+var lastDateDirection=-1;
 function focusToday(){
   selectedDate=todayIso();
   userPinnedDate=false;
+  lastDateDirection=-1;
   updateDateControls();
-  loadData();
+  loadData({force:true});
 }
 var agentView='observations';
 var agentPurposeId='understand_personal_rhythm';
@@ -96,6 +98,7 @@ function updateDateControls(){
 }
 function changeDate(delta){
   userPinnedDate=true;
+  lastDateDirection=delta;
   selectedDate=shiftDateIso(selectedDate,delta);
   if(selectedDate>todayIso())selectedDate=todayIso();
   lastAppsLayoutSignature='';
@@ -2625,6 +2628,7 @@ function render(d){
   var scoreEl=document.getElementById('today-score');
   if(dateEl)updateDateControls();
   if(scoreEl)scoreEl.textContent=fmtNum(responses||0);
+  if(d.date)writeDashboardCache(d.date,'day',d);
 }
 
 /* ── Heatmap (previous 5 days + today) ─ */
@@ -2697,6 +2701,7 @@ function changeHeatPeriod(delta){
 function jumpToHeatDate(date){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||''))||date>todayIso())return;
   userPinnedDate=true;
+  lastDateDirection=date<selectedDate?-1:1;
   selectedDate=date;
   lastAppsLayoutSignature='';
   heatMonthCursor=date.slice(0,7);
@@ -2896,9 +2901,12 @@ async function openHourDetail(date,hour){
   }
 }
 async function loadHeatmap(){
+  var date=selectedDate;
   try{
-    var r=await fetch('/api/heatmap?days=6&end='+encodeURIComponent(selectedDate)),j=await r.json();
+    var j=await fetchJson('/api/heatmap?days=6&end='+encodeURIComponent(date));
+    if(selectedDate!==date)return;
     heatmapDays=j.data||[];
+    writeDashboardCache(date,'heatmap',j);
     document.getElementById('heat-grid')?.classList.remove('month');
     renderHeatmap();
   }catch(e){}
@@ -2907,6 +2915,7 @@ async function loadMonthHeatmap(){
   try{
     var month=heatMonthCursor;
     var r=await fetch('/api/month-heatmap?month='+encodeURIComponent(month)),j=await r.json();
+    if(heatRange!=='month'||heatMonthCursor!==month)return;
     monthHeatmap=j;
     renderMonthHeatmap();
   }catch(e){}
@@ -2915,6 +2924,7 @@ async function loadYearHeatmap(){
   try{
     var year=heatYearCursor;
     var r=await fetch('/api/year-heatmap?year='+encodeURIComponent(year)),j=await r.json();
+    if(heatRange!=='year'||heatYearCursor!==year)return;
     yearHeatmap=j;
     renderYearHeatmap();
   }catch(e){}
@@ -2969,8 +2979,11 @@ function renderApps(apps){
   }catch(e){}
 }
 async function loadApps(){
+  var date=selectedDate;
   try{
-    var r=await fetch('/api/apps?date='+encodeURIComponent(selectedDate)),j=await r.json();
+    var j=await fetchJson('/api/apps?date='+encodeURIComponent(date));
+    if(selectedDate!==date)return;
+    writeDashboardCache(date,'apps',j);
     renderApps(j.apps||[]);
   }catch(e){}
 }
@@ -3009,52 +3022,117 @@ document.querySelector('.wrap')?.addEventListener('touchend', async () => {
 }, { passive: true });
 
 /* ── 数据加载 ─────────────────── */
-async function fetchJson(url){
-  var r=await fetch(url);
+async function fetchJson(url,options){
+  var r=await fetch(url,options);
   if(!r.ok)throw new Error('HTTP '+r.status);
   return r.json();
 }
-async function loadData() {
-  setOfflineMessage(false);
-  updateDateControls();
-  var agentPanel=document.getElementById('agent-panel');
-  if(agentPanel&&agentView!=='apps'&&!(agentObservationFeed&&agentObservationFeed.ok)){
-    agentObservationFeed=null;
-    syncAgentChrome();
-    agentPanel.innerHTML='<div class="agent-empty">'+esc(t('agentObservationLoading'))+'</div>';
-    agentPanel.setAttribute('data-rendered','0');
-  }
-  var urls=[
-    '/api/day?date='+encodeURIComponent(selectedDate),
-    '/api/heatmap?days=6&end='+encodeURIComponent(selectedDate),
-    '/api/apps?date='+encodeURIComponent(selectedDate),
-    '/api/agent/observations?date='+encodeURIComponent(selectedDate)+'&purpose='+encodeURIComponent(agentPurposeId)
-  ];
-  var results=await Promise.allSettled(urls.map(fetchJson));
-  var ok=false;
-  if(results[0].status==='fulfilled'){
-    render(results[0].value);
-    ok=true;
-  }
-  if(results[1].status==='fulfilled'){
-    heatmapDays=results[1].value.data||[];
+var dataLoadSequence=0;
+var dataLoadController=null;
+var dashboardCache=new Map();
+var dashboardCacheLimit=12;
+var dashboardPrefetchController=null;
+function dashboardCacheFresh(entry,date){
+  if(!entry)return false;
+  return Date.now()-entry.savedAt<(date===todayIso()?15000:300000);
+}
+function readDashboardCache(date,allowStale){
+  var entry=dashboardCache.get(date);
+  if(!entry)return null;
+  if(!allowStale&&!dashboardCacheFresh(entry,date))return null;
+  return entry;
+}
+function writeDashboardCache(date,part,value){
+  if(!date)return;
+  var entry=dashboardCache.get(date)||{savedAt:0,complete:false};
+  if(part)entry[part]=value;
+  entry.savedAt=Date.now();
+  entry.complete=Boolean(entry.day&&entry.heatmap&&entry.apps);
+  dashboardCache.delete(date);
+  dashboardCache.set(date,entry);
+  while(dashboardCache.size>dashboardCacheLimit)dashboardCache.delete(dashboardCache.keys().next().value);
+}
+function applyDashboardBundle(date,bundle){
+  if(selectedDate!==date)return;
+  if(bundle.day)render(bundle.day);
+  if(bundle.heatmap){
+    heatmapDays=bundle.heatmap.data||[];
     if(heatRange==='year'&&!yearHeatmap)loadYearHeatmap();
     else if(heatRange==='month'&&!monthHeatmap)loadMonthHeatmap();
     else renderHeatmap();
-    ok=true;
   }
-  if(results[2].status==='fulfilled'){
-    renderApps(results[2].value.apps||[]);
-    ok=true;
+  if(bundle.apps)renderApps(bundle.apps.apps||[]);
+}
+function prefetchAdjacentDate(date,direction){
+  var target=shiftDateIso(date,direction||-1);
+  if(target>todayIso()||document.hidden)return;
+  var cached=readDashboardCache(target,true);
+  if(cached&&cached.complete&&dashboardCacheFresh(cached,target))return;
+  if(dashboardPrefetchController)dashboardPrefetchController.abort();
+  var controller=new AbortController();
+  dashboardPrefetchController=controller;
+  setTimeout(function(){
+    if(controller.signal.aborted)return;
+    Promise.all([
+      fetchJson('/api/day?date='+encodeURIComponent(target),{signal:controller.signal}).then(function(value){writeDashboardCache(target,'day',value)},function(){}),
+      fetchJson('/api/heatmap?days=6&end='+encodeURIComponent(target),{signal:controller.signal}).then(function(value){writeDashboardCache(target,'heatmap',value)},function(){}),
+      fetchJson('/api/apps?date='+encodeURIComponent(target),{signal:controller.signal}).then(function(value){writeDashboardCache(target,'apps',value)},function(){})
+    ]).then(function(){if(dashboardPrefetchController===controller)dashboardPrefetchController=null;});
+  },180);
+}
+async function loadData(options) {
+  options=options||{};
+  var sequence=++dataLoadSequence,date=selectedDate;
+  if(dataRetryTimer){
+    clearTimeout(dataRetryTimer);
+    dataRetryTimer=null;
   }
-  if(results[3].status==='fulfilled'){
-    renderAgentObservations(results[3].value);
-    ok=true;
-  }else if(agentView!=='apps'){
-    var reason=results[3].reason;
-    var message=reason&&reason.message?reason.message:t('agentObservationLoading');
-    renderAgentObservations({ok:false,error:message});
+  if(dataLoadController)dataLoadController.abort();
+  if(dashboardPrefetchController)dashboardPrefetchController.abort();
+  var controller=new AbortController();
+  dataLoadController=controller;
+  function isCurrent(){return sequence===dataLoadSequence&&selectedDate===date;}
+  setOfflineMessage(false);
+  updateDateControls();
+  var cached=readDashboardCache(date,true);
+  if(cached&&cached.complete&&dashboardCacheFresh(cached,date)&&!options.force){
+    applyDashboardBundle(date,cached);
+    prefetchAdjacentDate(date,lastDateDirection);
+    if(dataLoadController===controller)dataLoadController=null;
+    return;
   }
+  var bundle=cached||{};
+  if(cached)applyDashboardBundle(date,bundle);
+  var primaryOk=[false,false,false];
+  var requests=[
+    fetchJson('/api/day?date='+encodeURIComponent(date),{signal:controller.signal}).then(function(value){
+      if(!isCurrent())return;
+      bundle.day=value;
+      writeDashboardCache(date,'day',value);
+      render(value);
+      primaryOk[0]=true;
+    },function(){}),
+    fetchJson('/api/heatmap?days=6&end='+encodeURIComponent(date),{signal:controller.signal}).then(function(value){
+      if(!isCurrent())return;
+      bundle.heatmap=value;
+      writeDashboardCache(date,'heatmap',value);
+      heatmapDays=value.data||[];
+      if(heatRange==='year'&&!yearHeatmap)loadYearHeatmap();
+      else if(heatRange==='month'&&!monthHeatmap)loadMonthHeatmap();
+      else renderHeatmap();
+      primaryOk[1]=true;
+    },function(){}),
+    fetchJson('/api/apps?date='+encodeURIComponent(date),{signal:controller.signal}).then(function(value){
+      if(!isCurrent())return;
+      bundle.apps=value;
+      writeDashboardCache(date,'apps',value);
+      renderApps(value.apps||[]);
+      primaryOk[2]=true;
+    },function(){})
+  ];
+  await Promise.all(requests);
+  if(!isCurrent())return;
+  var ok=primaryOk.some(Boolean);
   if(!ok){
     setOfflineMessage(true,t('connecting'));
     if(!dataRetryTimer){
@@ -3063,10 +3141,10 @@ async function loadData() {
         loadData();
       },1200);
     }
-  }else if(dataRetryTimer){
-    clearTimeout(dataRetryTimer);
-    dataRetryTimer=null;
+  }else{
+    prefetchAdjacentDate(date,lastDateDirection);
   }
+  if(dataLoadController===controller)dataLoadController=null;
 }
 
 /* ── Init ──────────────────────── */
@@ -3120,7 +3198,7 @@ async function init(){
       if(isSelectedToday()){
         loadHeatmap();
         loadApps();
-        loadAgentObservations({silent:true});
+        if(document.getElementById('agent-panel'))loadAgentObservations({silent:true});
       }
     }, 60000);
 

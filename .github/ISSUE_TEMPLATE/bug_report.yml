@@ -12,7 +12,7 @@ body:
     attributes:
       label: Application version
       description: Include the application version and source tag if known.
-      placeholder: 0.12.1 / epoch 2, source tag v0.1.0
+      placeholder: 0.2.0 / epoch 2, source tag v0.2.0
     validations:
       required: true
   - type: input

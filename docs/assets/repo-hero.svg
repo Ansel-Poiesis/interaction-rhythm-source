@@ -50,7 +50,7 @@
   <g transform="rotate(-2 728 423)">
     <rect x="624" y="392" width="202" height="90" rx="4" fill="#8e8779" opacity=".12"/>
     <path d="M618 384h202v82l-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-13-5-13 5-13-5V384z" fill="#dbe5df"/>
-    <text x="641" y="417" class="sans" font-size="12" letter-spacing="1.5" fill="#697b70">OPEN SOURCE / 0.1.0</text>
+    <text x="641" y="417" class="sans" font-size="12" letter-spacing="1.5" fill="#697b70">OPEN SOURCE / 0.2.0</text>
     <text x="641" y="445" class="serif" font-size="17" fill="#304638">可读 · 可改 · 可复核</text>
   </g>
 

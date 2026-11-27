@@ -4,6 +4,7 @@ import sqlite3
 import threading
 import random
 import json
+from bisect import bisect_right
 from collections import Counter
 from pathlib import Path
 from datetime import datetime, time, timedelta
@@ -164,6 +165,7 @@ CREATE TABLE IF NOT EXISTS metric_cache (
 CREATE INDEX IF NOT EXISTS idx_key_ts ON keystrokes(ts);
 CREATE INDEX IF NOT EXISTS idx_mouse_ts ON mouse_events(ts);
 CREATE INDEX IF NOT EXISTS idx_app_start ON app_usage(start);
+CREATE INDEX IF NOT EXISTS idx_app_usage_end_start ON app_usage(end, start);
 CREATE INDEX IF NOT EXISTS idx_app_name ON app_usage(app);
 CREATE INDEX IF NOT EXISTS idx_interact_ts ON app_interactions(ts);
 CREATE INDEX IF NOT EXISTS idx_interact_app ON app_interactions(app);
@@ -171,7 +173,9 @@ CREATE INDEX IF NOT EXISTS idx_insight_generated ON insight_history(generated_at
 CREATE INDEX IF NOT EXISTS idx_bucket_started ON interaction_buckets(started_at);
 CREATE INDEX IF NOT EXISTS idx_bucket_process ON interaction_buckets(process_name);
 CREATE INDEX IF NOT EXISTS idx_foreground_started ON foreground_intervals(started_at);
+CREATE INDEX IF NOT EXISTS idx_fg_ended_started ON foreground_intervals(ended_at, started_at, health_state);
 CREATE INDEX IF NOT EXISTS idx_observation_started ON observation_segments(started_at);
+CREATE INDEX IF NOT EXISTS idx_obs_comp_ended_started ON observation_segments(component, ended_at, started_at, state);
 CREATE INDEX IF NOT EXISTS idx_collector_observed ON collector_states(observed_at);
 CREATE INDEX IF NOT EXISTS idx_agent_corrections_lookup ON agent_corrections(end_date, purpose_id);
 """
@@ -186,12 +190,24 @@ class DB:
         self._closed = False
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(path), check_same_thread=False)
-        conn.executescript(SCHEMA)
-        self._migrate(conn)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.commit()
+        try:
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.executescript(SCHEMA)
+            self._migrate(conn)
+            conn.commit()
+            # WAL is a persistent file setting. SQLite cannot switch modes
+            # inside the migration transaction or while readers race to open it.
+            conn.execute("PRAGMA journal_mode=WAL").fetchone()
+        except Exception:
+            conn.close()
+            raise
         self._local.conn = conn
         self._connections.add(conn)
+
+    @property
+    def path(self) -> Path:
+        """数据库文件位置（只读；配套数据文件应放在同目录）。"""
+        return self._path
 
     def _migrate(self, conn: sqlite3.Connection):
         cols = {row[1] for row in conn.execute("PRAGMA table_info(app_usage)").fetchall()}
@@ -397,7 +413,7 @@ class DB:
             if self._closed:
                 raise RuntimeError("database is closed")
             c = sqlite3.connect(str(self._path), check_same_thread=False)
-            c.execute("PRAGMA journal_mode=WAL")
+            c.execute("PRAGMA busy_timeout=5000")
             self._local.conn = c
             with self._connections_lock:
                 if self._closed:
@@ -753,74 +769,129 @@ class DB:
         ).fetchone()
         return float(row[0] or 0)
 
+    @staticmethod
+    def _day_range_bounds(date: str) -> tuple[str, str] | None:
+        if not date or len(date) != 10:
+            return None
+        try:
+            start = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        return date, (start + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    def _prefer_end_index(self, table: str, start_col: str, end_col: str, target_date: str) -> bool:
+        """Choose end-index for recent dates and start-index for early dates in O(1)."""
+        row = self._conn.execute(
+            f"SELECT (SELECT MIN({start_col}) FROM {table}), (SELECT MAX({end_col}) FROM {table})"
+        ).fetchone()
+        if not row or not row[0] or not row[1]:
+            return True
+        lo, hi = str(row[0])[:10], str(row[1])[:10]
+        target = str(target_date)[:10]
+        if target >= hi:
+            return True
+        if target <= lo:
+            return False
+        try:
+            lo_ord = datetime.strptime(lo, "%Y-%m-%d").toordinal()
+            hi_ord = datetime.strptime(hi, "%Y-%m-%d").toordinal()
+            target_ord = datetime.strptime(target, "%Y-%m-%d").toordinal()
+        except ValueError:
+            return True
+        return (hi_ord - target_ord) <= (target_ord - lo_ord)
+
+    def _app_usage_for_day(
+        self,
+        date: str,
+        now: str,
+        *,
+        include_title: bool,
+        limit: int | None = None,
+    ) -> list[tuple]:
+        day_end = f"{date}T23:59:59"
+        use_end = self._prefer_end_index("app_usage", "start", "end", date)
+        start_expr = "+start" if use_end else "start"
+        end_expr = "end" if use_end else "+end"
+        title_col = "MAX(au.title) AS title, " if include_title else ""
+        limit_clause = f" LIMIT {int(limit)}" if limit is not None else ""
+        return self._conn.execute(
+            "WITH matched AS ("
+            f"  SELECT app, title, path, start, end FROM app_usage WHERE {start_expr} < ? AND {end_expr} >= ? "
+            "  UNION ALL "
+            "  SELECT app, title, path, start, end FROM app_usage WHERE start < ? AND end IS NULL AND ? >= ?"
+            ") "
+            f"SELECT au.app, "
+            "  SUM((julianday(MIN(COALESCE(au.end, ?), ?)) "
+            "     - julianday(MAX(au.start, ?))) * 86400) AS dur_s, "
+            f"  {title_col}"
+            "  COALESCE(NULLIF(MAX(au.path), ''), MAX(ap.path), '') AS path "
+            "FROM matched au LEFT JOIN app_paths ap ON ap.app=au.app "
+            f"GROUP BY au.app ORDER BY dur_s DESC, au.app ASC{limit_clause}",
+            (day_end, date, day_end, now, date, now, day_end, date),
+        ).fetchall()
+
     def day_metrics(self, date: str) -> dict:
         date = date or datetime.now().strftime("%Y-%m-%d")
         start_dt = datetime.fromisoformat(date).replace(tzinfo=local_now().tzinfo)
         end_dt = start_dt + timedelta(days=1)
         start_iso = start_dt.isoformat(timespec="seconds")
         end_iso = end_dt.isoformat(timespec="seconds")
+        pad_start = (start_dt - timedelta(days=2)).strftime("%Y-%m-%d")
+        pad_end = (end_dt + timedelta(days=2)).strftime("%Y-%m-%d")
 
         event_row = self._conn.execute(
             "SELECT COALESCE(SUM(keyboard_down_count),0), "
             "COALESCE(SUM(mouse_button_count),0), "
-            "COALESCE(SUM(scroll_event_count),0) "
+            "COALESCE(SUM(scroll_event_count),0), "
+            "COUNT(*) "
             "FROM interaction_buckets WHERE started_at>=? AND started_at<?",
             (start_iso, end_iso),
         ).fetchone()
-        keyboard, buttons, scroll = (int(value or 0) for value in event_row)
-        bucket_count = self._conn.execute(
-            "SELECT COUNT(*) FROM interaction_buckets WHERE started_at>=? AND started_at<?",
-            (start_iso, end_iso),
-        ).fetchone()[0]
-        foreground_seconds = self._clipped_seconds(
-            "foreground_intervals",
-            "started_at",
-            "ended_at",
-            start_iso,
-            end_iso,
-            "health_state='running'",
-        )
-        foreground_count = self._conn.execute(
-            "SELECT COUNT(*) FROM foreground_intervals "
-            "WHERE julianday(started_at)<julianday(?) "
-            "AND julianday(ended_at)>julianday(?)",
-            (end_iso, start_iso),
-        ).fetchone()[0]
-        expected_seconds = self._clipped_seconds(
-            "observation_segments",
-            "started_at",
-            "ended_at",
-            start_iso,
-            end_iso,
-            # Unknown gaps are responsibility intervals: they belong in the
-            # expected denominator and are measured separately by IR-HLT-004.
-            "component='collector' AND state IN ('running','degraded','unknown')",
-        )
-        healthy_seconds = self._clipped_seconds(
-            "observation_segments",
-            "started_at",
-            "ended_at",
-            start_iso,
-            end_iso,
-            "component='collector' AND state='running'",
-        )
-        unknown_seconds = self._clipped_seconds(
-            "observation_segments",
-            "started_at",
-            "ended_at",
-            start_iso,
-            end_iso,
-            "component='collector' AND state IN ('degraded','unknown')",
-        )
-        observed = self._conn.execute(
-            "SELECT MIN(started_at), MAX(ended_at) FROM observation_segments "
-            "WHERE component='collector' AND started_at<? AND ended_at>?",
-            (end_iso, start_iso),
+        keyboard, buttons, scroll, bucket_count = (int(value or 0) for value in event_row)
+
+        fg_use_end = self._prefer_end_index("foreground_intervals", "started_at", "ended_at", date)
+        fg_start_expr = "+started_at" if fg_use_end else "started_at"
+        fg_end_expr = "ended_at" if fg_use_end else "+ended_at"
+        fg_row = self._conn.execute(
+            "SELECT "
+            "  COALESCE(SUM(CASE "
+            "    WHEN health_state='running' AND started_at < ? AND ended_at > ? "
+            "    THEN MAX(0, (MIN(julianday(ended_at), julianday(?)) - MAX(julianday(started_at), julianday(?))) * 86400) "
+            "    ELSE 0 END), 0), "
+            "  COALESCE(SUM(CASE "
+            "    WHEN julianday(started_at) < julianday(?) AND julianday(ended_at) > julianday(?) "
+            "    THEN 1 ELSE 0 END), 0) "
+            "FROM foreground_intervals "
+            f"WHERE {fg_start_expr} < ? AND {fg_end_expr} > ?",
+            (end_iso, start_iso, end_iso, start_iso, end_iso, start_iso, pad_end, pad_start),
         ).fetchone()
+        foreground_seconds = float(fg_row[0] or 0)
+        foreground_count = int(fg_row[1] or 0)
+
+        obs_row = self._conn.execute(
+            "SELECT "
+            "  COALESCE(SUM(CASE WHEN state IN ('running','degraded','unknown') "
+            "    THEN MAX(0, (MIN(julianday(ended_at), julianday(?)) - MAX(julianday(started_at), julianday(?))) * 86400) "
+            "    ELSE 0 END), 0), "
+            "  COALESCE(SUM(CASE WHEN state='running' "
+            "    THEN MAX(0, (MIN(julianday(ended_at), julianday(?)) - MAX(julianday(started_at), julianday(?))) * 86400) "
+            "    ELSE 0 END), 0), "
+            "  COALESCE(SUM(CASE WHEN state IN ('degraded','unknown') "
+            "    THEN MAX(0, (MIN(julianday(ended_at), julianday(?)) - MAX(julianday(started_at), julianday(?))) * 86400) "
+            "    ELSE 0 END), 0), "
+            "  MIN(started_at), MAX(ended_at) "
+            "FROM observation_segments "
+            "WHERE component='collector' AND started_at < ? AND ended_at > ?",
+            (end_iso, start_iso, end_iso, start_iso, end_iso, start_iso, end_iso, start_iso),
+        ).fetchone()
+        expected_seconds = float(obs_row[0] or 0)
+        healthy_seconds = float(obs_row[1] or 0)
+        unknown_seconds = float(obs_row[2] or 0)
+        first_observed, last_observed = obs_row[3], obs_row[4]
         coverage = coverage_result(expected_seconds, healthy_seconds, unknown_seconds)
         coverage.update({
-            "first_observed_at": observed[0] if observed else None,
-            "last_observed_at": observed[1] if observed else None,
+            "first_observed_at": first_observed,
+            "last_observed_at": last_observed,
             "metric_ids": ["IR-HLT-001", "IR-HLT-002", "IR-HLT-003", "IR-HLT-004"],
         })
         return {
@@ -1018,26 +1089,13 @@ class DB:
     def day_stats(self, date: str) -> dict:
         date = date or datetime.now().strftime("%Y-%m-%d")
         now = datetime.now().isoformat(timespec="seconds")
-        total_keys = self._conn.execute(
-            "SELECT COALESCE(SUM(count),0) FROM keystrokes WHERE substr(ts,1,10)=?",
-            (date,),
-        ).fetchone()[0]
-        total_mouse = self._conn.execute(
-            "SELECT COALESCE(SUM(count),0) FROM mouse_events WHERE substr(ts,1,10)=?",
-            (date,),
-        ).fetchone()[0]
+        hourly_keys = self._hourly_table("keystrokes", date)
+        hourly_mouse = self._hourly_table("mouse_events", date)
+        total_keys = sum(hourly_keys)
+        total_mouse = sum(hourly_mouse)
+        hourly = [hourly_keys[i] + hourly_mouse[i] for i in range(24)]
 
-        rows = self._conn.execute(
-            "SELECT au.app, "
-            "  SUM((julianday(MIN(COALESCE(end, ?), ? || 'T23:59:59')) "
-            "     - julianday(MAX(start, ?))) * 86400) AS dur_s, "
-            "  MAX(title) AS title, "
-            "  COALESCE(NULLIF(MAX(au.path), ''), MAX(ap.path), '') AS path "
-            "FROM app_usage au LEFT JOIN app_paths ap ON ap.app=au.app "
-            "WHERE start < ? || 'T23:59:59' AND COALESCE(end, ?) >= ? "
-            "GROUP BY au.app ORDER BY dur_s DESC",
-            (now, date, date, date, now, date),
-        ).fetchall()
+        rows = self._app_usage_for_day(date, now, include_title=True)
 
         apps = []
         total_time = 0.0
@@ -1051,7 +1109,6 @@ class DB:
                 "path": path or "",
             })
 
-        hourly = self.hourly_chart(date)
         responses = int(total_keys or 0) + int(total_mouse or 0)
         peak_hour = max(range(24), key=lambda h: hourly[h]) if responses else None
         peak_value = hourly[peak_hour] if peak_hour is not None else 0
@@ -1086,12 +1143,21 @@ class DB:
         }
 
     def _hourly_table(self, table: str, date: str) -> list[int]:
-        rows = self._conn.execute(
-            f"SELECT substr(ts,12,2) as h, SUM(count) "
-            f"FROM {table} WHERE substr(ts,1,10)=? "
-            "GROUP BY h ORDER BY h",
-            (date,),
-        ).fetchall()
+        bounds = self._day_range_bounds(date)
+        if bounds is not None:
+            rows = self._conn.execute(
+                f"SELECT substr(ts,12,2) as h, SUM(count) "
+                f"FROM {table} WHERE ts >= ? AND ts < ? "
+                "GROUP BY h ORDER BY h",
+                bounds,
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                f"SELECT substr(ts,12,2) as h, SUM(count) "
+                f"FROM {table} WHERE substr(ts,1,10)=? "
+                "GROUP BY h ORDER BY h",
+                (date,),
+            ).fetchall()
         data = [0] * 24
         for h, c in rows:
             data[int(h)] = int(c or 0)
@@ -1105,24 +1171,26 @@ class DB:
     def app_chart(self, date: str) -> list:
         now = datetime.now().isoformat(timespec="seconds")
         labels = self.app_label_map()
-        rows = self._conn.execute(
-            "SELECT au.app, "
-            "  SUM((julianday(MIN(COALESCE(end, ?), ? || 'T23:59:59')) "
-            "     - julianday(MAX(start, ?))) * 86400) AS dur_s, "
-            "  COALESCE(NULLIF(MAX(au.path), ''), MAX(ap.path), '') AS path "
-            "FROM app_usage au LEFT JOIN app_paths ap ON ap.app=au.app "
-            "WHERE start < ? || 'T23:59:59' AND COALESCE(end, ?) >= ? "
-            "GROUP BY au.app ORDER BY dur_s DESC LIMIT 10",
-            (now, date, date, date, now, date),
-        ).fetchall()
-        interactions = self._conn.execute(
-            "SELECT ai.app, SUM(ai.keyboard), SUM(ai.mouse), "
-            "  COALESCE(NULLIF(MAX(ai.path), ''), MAX(ap.path), '') AS path "
-            "FROM app_interactions ai LEFT JOIN app_paths ap ON ap.app=ai.app "
-            "WHERE substr(ai.ts,1,10)=? "
-            "GROUP BY ai.app",
-            (date,),
-        ).fetchall()
+        rows = self._app_usage_for_day(date, now, include_title=False, limit=10)
+        bounds = self._day_range_bounds(date)
+        if bounds is not None:
+            interactions = self._conn.execute(
+                "SELECT ai.app, SUM(ai.keyboard), SUM(ai.mouse), "
+                "  COALESCE(NULLIF(MAX(ai.path), ''), MAX(ap.path), '') AS path "
+                "FROM app_interactions ai LEFT JOIN app_paths ap ON ap.app=ai.app "
+                "WHERE ai.ts >= ? AND ai.ts < ? "
+                "GROUP BY ai.app",
+                bounds,
+            ).fetchall()
+        else:
+            interactions = self._conn.execute(
+                "SELECT ai.app, SUM(ai.keyboard), SUM(ai.mouse), "
+                "  COALESCE(NULLIF(MAX(ai.path), ''), MAX(ap.path), '') AS path "
+                "FROM app_interactions ai LEFT JOIN app_paths ap ON ap.app=ai.app "
+                "WHERE substr(ai.ts,1,10)=? "
+                "GROUP BY ai.app",
+                (date,),
+            ).fetchall()
         interaction_map = {}
         for app, keyboard, mouse, path in interactions:
             keyboard = int(keyboard or 0)
@@ -1173,22 +1241,18 @@ class DB:
     def hour_detail(self, date: str, hour: int) -> dict:
         date = date or datetime.now().strftime("%Y-%m-%d")
         hour = max(0, min(23, int(hour or 0)))
-        prefix = f"{date}T{hour:02d}:"
-        keyboard = self._conn.execute(
-            "SELECT COALESCE(SUM(count),0) FROM keystrokes WHERE ts LIKE ?",
-            (prefix + "%",),
-        ).fetchone()[0]
-        mouse = self._conn.execute(
-            "SELECT COALESCE(SUM(count),0) FROM mouse_events WHERE ts LIKE ?",
-            (prefix + "%",),
-        ).fetchone()[0]
+        hour_lo = f"{date}T{hour:02d}:"
+        hour_hi = f"{date}T{hour:02d};"
+        keys_by_day, mouse_by_day, archived = self._hourly_inputs(date, date)
+        keyboard = keys_by_day.get(date, [0] * 24)[hour]
+        mouse = mouse_by_day.get(date, [0] * 24)[hour]
         rows = self._conn.execute(
             "SELECT ai.app, SUM(ai.keyboard), SUM(ai.mouse), "
             "  COALESCE(NULLIF(MAX(ai.path), ''), MAX(ap.path), '') AS path "
             "FROM app_interactions ai LEFT JOIN app_paths ap ON ap.app=ai.app "
-            "WHERE ai.ts LIKE ? "
+            "WHERE ai.ts >= ? AND ai.ts < ? "
             "GROUP BY ai.app",
-            (prefix + "%",),
+            (hour_lo, hour_hi),
         ).fetchall()
         apps = []
         total = 0
@@ -1207,36 +1271,21 @@ class DB:
         apps.sort(key=lambda item: item["responses"], reverse=True)
         for app in apps:
             app["share"] = round(app["responses"] / total, 4) if total else 0
-        hour_start = datetime.fromisoformat(
-            f"{date}T{hour:02d}:00:00"
-        ).replace(tzinfo=local_now().tzinfo)
+        hour_start = datetime.fromisoformat(f"{date}T{hour:02d}:00:00")
         hour_end = hour_start + timedelta(hours=1)
-        start_iso = hour_start.isoformat(timespec="seconds")
-        end_iso = hour_end.isoformat(timespec="seconds")
-        foreground_seconds = self._clipped_seconds(
-            "foreground_intervals",
-            "started_at",
-            "ended_at",
-            start_iso,
-            end_iso,
-            "health_state='running'",
-        )
-        expected_seconds = self._clipped_seconds(
-            "observation_segments",
-            "started_at",
-            "ended_at",
-            start_iso,
-            end_iso,
-            "component='collector' AND state IN ('running','degraded','unknown')",
-        )
-        healthy_seconds = self._clipped_seconds(
-            "observation_segments",
-            "started_at",
-            "ended_at",
-            start_iso,
-            end_iso,
-            "component='collector' AND state='running'",
-        )
+        fg_use_end = self._prefer_end_index("foreground_intervals", "started_at", "ended_at", date)
+        fg_start_expr = "+started_at" if fg_use_end else "started_at"
+        fg_end_expr = "ended_at" if fg_use_end else "+ended_at"
+        foreground_seconds = self._conn.execute(
+            "SELECT COALESCE(SUM(MAX(0, (MIN(julianday(ended_at),julianday(?,'utc')) "
+            "- MAX(julianday(started_at),julianday(?,'utc'))) * 86400)),0) "
+            f"FROM foreground_intervals WHERE health_state='running' AND {fg_start_expr} < ? AND {fg_end_expr} >= ?",
+            (hour_end.isoformat(), hour_start.isoformat(), (hour_end + timedelta(days=2)).date().isoformat(),
+             (hour_start - timedelta(days=2)).date().isoformat()),
+        ).fetchone()[0]
+        healthy, unknown = self._hourly_observations(hour_start, hour_end)[0]
+        coverage = coverage_result(healthy + unknown, healthy, unknown)
+        coverage["observed_seconds"] = None if date in archived else healthy
         return {
             "date": date,
             "hour": hour,
@@ -1244,23 +1293,38 @@ class DB:
             "mouse": int(mouse or 0),
             "responses": int(keyboard or 0) + int(mouse or 0),
             "foreground_seconds": round(foreground_seconds),
-            "coverage": coverage_result(expected_seconds, healthy_seconds, 0),
+            "coverage": coverage,
             "apps": apps[:8],
         }
 
     def daily_summary(self, date: str) -> dict:
-        row = self._conn.execute(
-            "SELECT COALESCE(SUM(count),0) FROM keystrokes WHERE substr(ts,1,10)=?",
-            (date,),
-        ).fetchone()
+        bounds = self._day_range_bounds(date)
+        if bounds is not None:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(count),0) FROM keystrokes WHERE ts >= ? AND ts < ?",
+                bounds,
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(count),0) FROM keystrokes WHERE substr(ts,1,10)=?",
+                (date,),
+            ).fetchone()
         return {"date": date, "keystrokes": row[0]}
 
     def app_detail(self, app: str, date: str) -> dict:
-        rows = self._conn.execute(
-            "SELECT start, end, title FROM app_usage "
-            "WHERE app=? AND substr(start,1,10)=? ORDER BY start",
-            (app, date),
-        ).fetchall()
+        bounds = self._day_range_bounds(date)
+        if bounds is not None:
+            rows = self._conn.execute(
+                "SELECT start, end, title FROM app_usage "
+                "WHERE app=? AND start >= ? AND start < ? ORDER BY start",
+                (app, bounds[0], bounds[1]),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT start, end, title FROM app_usage "
+                "WHERE app=? AND substr(start,1,10)=? ORDER BY start",
+                (app, date),
+            ).fetchall()
         sessions = []
         for s, e, t in rows:
             start_dt = datetime.fromisoformat(s)
@@ -1293,20 +1357,22 @@ class DB:
         except ValueError:
             return fallback
 
-    def _range(self, days: int) -> tuple[datetime, datetime, list[str]]:
+    def _range(self, days: int, end_date: str = "") -> tuple[datetime, datetime, list[str]]:
         days = max(1, min(int(days or 1), 365))
         now = datetime.now()
+        if end_date:
+            now = min(now, datetime.combine(datetime.strptime(end_date, "%Y-%m-%d").date(), time.max))
         start_day = (now - timedelta(days=days - 1)).date()
         start = datetime.combine(start_day, time.min)
         dates = [(start_day + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
         return start, now, dates
 
-    def app_analysis(self, app: str, days: int = 7) -> dict:
+    def app_analysis(self, app: str, days: int = 7, end_date: str = "") -> dict:
         app = (app or "").strip()
-        start, end, dates = self._range(days)
-        now_iso = end.isoformat(timespec="seconds")
+        start, end, dates = self._range(days, end_date)
+        now_iso = end.isoformat()
         start_iso = start.isoformat(timespec="seconds")
-        end_iso = end.isoformat(timespec="seconds")
+        end_iso = (end + timedelta(microseconds=1)).isoformat()
         path_row = self._conn.execute("SELECT path FROM app_paths WHERE app=?", (app,)).fetchone()
         known_path = path_row[0] if path_row else ""
 
@@ -1372,7 +1438,7 @@ class DB:
             "SELECT substr(ts,1,10) AS d, CAST(substr(ts,12,2) AS INTEGER) AS h, "
             "  SUM(keyboard), SUM(mouse) "
             "FROM app_interactions "
-            "WHERE app=? AND ts>=? AND ts<=? "
+            "WHERE app=? AND ts>=? AND ts<? "
             "GROUP BY d, h ORDER BY d, h",
             (app, start_iso, end_iso),
         ).fetchall()
@@ -1405,6 +1471,7 @@ class DB:
             "date_end": dates[-1] if dates else "",
             "total_seconds": total_seconds,
             "today_seconds": round(daily.get(datetime.now().strftime("%Y-%m-%d"), 0)),
+            "selected_day_seconds": round(daily[dates[-1]]),
             "session_count": session_count,
             "average_session_seconds": round(total_seconds / session_count) if session_count else 0,
             "longest_session_seconds": longest,
@@ -1461,7 +1528,7 @@ class DB:
         now_iso = end.isoformat(timespec="seconds")
         start_iso = start.isoformat(timespec="seconds")
         end_iso = end.isoformat(timespec="seconds")
-        heatmap = self.heatmap_data(len(dates), False)
+        heatmap = self.heatmap_data(len(dates), False, include_coverage=False)
         daily = []
         for row in heatmap:
             keyboard = sum(row.get("keyboard_hourly", []))
@@ -2277,23 +2344,118 @@ class DB:
         ).fetchone()
         return (r1[0], r2[0]) if r1 and r2 else (None, None)
 
+    def _daily_event_totals(self, table: str, start: str, end_inclusive: str | None = None) -> dict[str, int]:
+        """Daily sums from raw events, backfilled with daily_totals for compacted dates."""
+        detail_column = "keyboard" if table == "keystrokes" else "mouse"
+        if end_inclusive is not None:
+            end_exclusive = (datetime.strptime(end_inclusive, "%Y-%m-%d").date() + timedelta(days=1)).strftime("%Y-%m-%d")
+            raw_rows = self._conn.execute(
+                f"SELECT substr(ts,1,10) AS d, SUM(count) FROM {table} "
+                "WHERE ts >= ? AND ts < ? GROUP BY d",
+                (start, end_exclusive),
+            ).fetchall()
+            archived_rows = self._conn.execute(
+                f"SELECT date, {detail_column} FROM daily_totals "
+                "WHERE date >= ? AND date <= ?",
+                (start, end_inclusive),
+            ).fetchall()
+        else:
+            raw_rows = self._conn.execute(
+                f"SELECT substr(ts,1,10) AS d, SUM(count) FROM {table} "
+                "WHERE ts >= ? GROUP BY d",
+                (start,),
+            ).fetchall()
+            archived_rows = self._conn.execute(
+                f"SELECT date, {detail_column} FROM daily_totals "
+                "WHERE date >= ?",
+                (start,),
+            ).fetchall()
+        totals = {d: int(c or 0) for d, c in raw_rows}
+        for d, c in archived_rows:
+            if d not in totals:
+                totals[d] = int(c or 0)
+        return totals
+
     def daily_keystrokes(self, days: int = 7) -> list:
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        rows = self._conn.execute(
-            "SELECT d, SUM(c) FROM ("
-            "  SELECT substr(ts,1,10) AS d, SUM(count) AS c "
-            "  FROM keystrokes WHERE substr(ts,1,10) >= ? GROUP BY d "
-            "  UNION ALL "
-            "  SELECT date AS d, keyboard AS c FROM daily_totals "
-            "  WHERE date >= ? AND NOT EXISTS ("
-            "    SELECT 1 FROM keystrokes k WHERE substr(k.ts,1,10)=daily_totals.date"
-            "  )"
-            ") GROUP BY d ORDER BY d",
-            (cutoff, cutoff),
-        ).fetchall()
-        return [{"date": d, "count": c} for d, c in rows]
+        totals = self._daily_event_totals("keystrokes", cutoff)
+        return [{"date": d, "count": totals[d]} for d in sorted(totals)]
 
-    def heatmap_data(self, days: int = 7, tomorrow: bool = False, end_date: str | None = None) -> list:
+    def _hourly_inputs(self, first: str, last: str) -> tuple[dict, dict, set[str]]:
+        until = (datetime.fromisoformat(last) + timedelta(days=1)).date().isoformat()
+
+        def by_day(table):
+            totals = {}
+            for day, hour, count in self._conn.execute(
+                f"SELECT substr(ts,1,10) AS d, CAST(substr(ts,12,2) AS INTEGER) AS h, SUM(count) "
+                f"FROM {table} WHERE ts >= ? AND ts < ? GROUP BY d,h", (first, until)
+            ):
+                totals.setdefault(day, [0] * 24)[hour] = int(count or 0)
+            return totals
+
+        keys, mouse = by_day("keystrokes"), by_day("mouse_events")
+        # Retention keeps daily totals longer than raw inputs. Even a partly
+        # compacted day cannot establish which remaining zero hours were quiet.
+        archived = {
+            day for day, k, m in self._conn.execute(
+                "SELECT date, keyboard, mouse FROM daily_totals WHERE date >= ? AND date <= ?",
+                (first, last),
+            ) if k > sum(keys.get(day, ())) or m > sum(mouse.get(day, ()))
+        }
+        return keys, mouse, archived
+
+    def _hourly_observations(self, start: datetime, end: datetime) -> list[tuple[int, int]]:
+        """Healthy and unknown seconds per local clock hour, from one range query."""
+        hours = (end - start) // timedelta(hours=1)
+        # Convert each civil boundary with the host's date-specific UTC offset.
+        # SQLite also supports local dates before the Windows CRT timestamp range.
+        bounds = [
+            int(row[0]) for row in self._conn.execute(
+                "WITH RECURSIVE hours(t) AS (SELECT ? UNION ALL "
+                "SELECT datetime(t,'+1 hour') FROM hours WHERE t < ?) "
+                "SELECT strftime('%s',t,'utc') FROM hours",
+                (start.isoformat(" "), end.isoformat(" ")),
+            )
+        ]
+        changes = {boundary: [0, 0] for boundary in bounds}
+        # Timestamps can carry another UTC offset. Pad the indexed text filter,
+        # then clip each segment by its actual instant rather than its spelling.
+        rows = self._conn.execute(
+            "SELECT started_at, ended_at, state FROM observation_segments "
+            "WHERE component='collector' AND state IN ('running','degraded','unknown') "
+            "AND started_at < ? AND ended_at >= ?",
+            ((end + timedelta(days=2)).date().isoformat(), (start - timedelta(days=2)).date().isoformat()),
+        )
+        for started, ended, state in rows:
+            try:
+                lo = max(bounds[0], datetime.fromisoformat(started).timestamp())
+                hi = min(bounds[-1], datetime.fromisoformat(ended).timestamp())
+            except ValueError:
+                # Legacy imports may contain unparseable text; it proves no coverage.
+                continue
+            if lo < hi:
+                kind = 0 if state == "running" else 1
+                changes.setdefault(lo, [0, 0])[kind] += 1
+                changes.setdefault(hi, [0, 0])[kind] -= 1
+
+        # Union overlapping intervals. Conflicting health records describe
+        # uncertainty, and must not turn an incomplete hour into a quiet one.
+        seconds = [[0, 0] for _ in range(hours)]
+        running = uncertain = 0
+        previous = bounds[0]
+        for instant, (running_delta, uncertain_delta) in sorted(changes.items()):
+            if instant > previous and (running or uncertain):
+                slot = bisect_right(bounds, previous) - 1
+                seconds[slot][1 if uncertain else 0] += instant - previous
+            running += running_delta
+            uncertain += uncertain_delta
+            previous = instant
+        return [(round(healthy), round(unknown)) for healthy, unknown in seconds]
+
+    def heatmap_data(
+        self, days: int = 7, tomorrow: bool = False, end_date: str | None = None, *, include_coverage: bool = True
+    ) -> list:
+        """coverage_hourly is healthy collector seconds, or null when hourly inputs were compacted."""
         actual_days = max(1, days)
         today_dt = datetime.now()
         try:
@@ -2307,20 +2469,11 @@ class DB:
         cutoff = (end_dt - timedelta(days=actual_days - 1)).strftime("%Y-%m-%d")
         end = end_dt.strftime("%Y-%m-%d")
 
-        def _by_day(table):
-            rows = self._conn.execute(
-                f"SELECT substr(ts,1,10) as d, CAST(substr(ts,12,2) AS INTEGER) as h, SUM(count) "
-                f"FROM {table} WHERE substr(ts,1,10) >= ? AND substr(ts,1,10) <= ? "
-                "GROUP BY d, h ORDER BY d, h",
-                (cutoff, end),
-            ).fetchall()
-            out = {}
-            for d, h, c in rows:
-                out.setdefault(d, [0] * 24)[h] = int(c or 0)
-            return out
-
-        keyboard_by_day = _by_day("keystrokes")
-        mouse_by_day = _by_day("mouse_events")
+        keyboard_by_day, mouse_by_day, archived = self._hourly_inputs(cutoff, end)
+        if include_coverage:
+            observed = self._hourly_observations(
+                datetime.fromisoformat(cutoff), datetime.fromisoformat(end) + timedelta(days=1)
+            )
         today = datetime.now().strftime("%Y-%m-%d")
         result = []
         for i in range(actual_days):
@@ -2335,37 +2488,12 @@ class DB:
                 "mouse_hourly": mouse_hourly,
                 "isToday": d == today,
             })
+            if include_coverage:
+                hours = observed[i * 24:(i + 1) * 24]
+                result[-1]["coverage_hourly"] = [None] * 24 if d in archived else [healthy for healthy, _ in hours]
         return result
 
-    def month_heatmap(self, month: str | None = None) -> dict:
-        current = datetime.now()
-        try:
-            base = datetime.strptime((month or current.strftime("%Y-%m")) + "-01", "%Y-%m-%d")
-        except (TypeError, ValueError):
-            base = current.replace(day=1)
-        next_month = (base.replace(day=28) + timedelta(days=4)).replace(day=1)
-        start = base.strftime("%Y-%m-%d")
-        end = (next_month - timedelta(days=1)).strftime("%Y-%m-%d")
-
-        def _daily(table):
-            detail_column = "keyboard" if table == "keystrokes" else "mouse"
-            rows = self._conn.execute(
-                "SELECT d, SUM(c) FROM ("
-                f"  SELECT substr(ts,1,10) AS d, SUM(count) AS c FROM {table} "
-                "  WHERE substr(ts,1,10)>=? AND substr(ts,1,10)<=? GROUP BY d "
-                "  UNION ALL "
-                "  SELECT date AS d, "
-                f"{detail_column} AS c FROM daily_totals "
-                "  WHERE date>=? AND date<=? AND NOT EXISTS ("
-                f"    SELECT 1 FROM {table} t WHERE substr(t.ts,1,10)=daily_totals.date"
-                "  )"
-                ") GROUP BY d",
-                (start, end, start, end),
-            ).fetchall()
-            return {d: int(c or 0) for d, c in rows}
-
-        keyboard = _daily("keystrokes")
-        mouse = _daily("mouse_events")
+    def _build_month_days(self, base: datetime, next_month: datetime, keyboard: dict[str, int], mouse: dict[str, int]) -> dict:
         days = []
         cursor = base
         while cursor < next_month:
@@ -2381,6 +2509,20 @@ class DB:
             cursor += timedelta(days=1)
         return {"month": base.strftime("%Y-%m"), "days": days}
 
+    def month_heatmap(self, month: str | None = None) -> dict:
+        current = datetime.now()
+        try:
+            base = datetime.strptime((month or current.strftime("%Y-%m")) + "-01", "%Y-%m-%d")
+        except (TypeError, ValueError):
+            base = current.replace(day=1)
+        next_month = (base.replace(day=28) + timedelta(days=4)).replace(day=1)
+        start = base.strftime("%Y-%m-%d")
+        end = (next_month - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        keyboard = self._daily_event_totals("keystrokes", start, end)
+        mouse = self._daily_event_totals("mouse_events", start, end)
+        return self._build_month_days(base, next_month, keyboard, mouse)
+
     def year_heatmap(self, year: str | None = None) -> dict:
         current = datetime.now()
         try:
@@ -2390,9 +2532,15 @@ class DB:
         except (TypeError, ValueError):
             year_value = current.year
 
+        start = f"{year_value}-01-01"
+        end = f"{year_value}-12-31"
+        keyboard = self._daily_event_totals("keystrokes", start, end)
+        mouse = self._daily_event_totals("mouse_events", start, end)
         months = []
         for month in range(1, 13):
-            months.append(self.month_heatmap(f"{year_value}-{month:02d}"))
+            base = datetime(year_value, month, 1)
+            next_month = datetime(year_value + 1, 1, 1) if month == 12 else datetime(year_value, month + 1, 1)
+            months.append(self._build_month_days(base, next_month, keyboard, mouse))
         return {"year": str(year_value), "months": months}
 
     def week_summary(self, end_date: str | None = None, days: int = 7) -> dict:
@@ -2570,19 +2718,20 @@ class DB:
         }
 
     def trend_summary(self, weeks: int = 12) -> dict:
-        """Weekly input/foreground trend plus the personal daily baseline band.
+        """Monday-aligned totals, qualified daily averages and four prior full weeks.
 
-        The trend horizon is Monday-aligned and bounded to the same review
-        window the weekly card uses. Daily totals keep the trend readable
-        after raw detail retention expires; scroll events are only present
-        while interaction-bucket detail is retained.
+        Retained daily totals remain available as counts even when their
+        coverage and event breakdown can no longer be verified. The original
+        stratified daily reference is returned separately for existing callers.
         """
         weeks = max(4, min(int(weeks), 26))
         today = local_now().date()
         monday = today - timedelta(days=today.weekday())
-        first_monday = monday - timedelta(weeks=weeks - 1)
+        # The last finished week needs four preceding Monday–Sunday peers.
+        history_weeks = max(weeks, 6)
+        first_monday = monday - timedelta(weeks=history_weeks - 1)
         start_iso = datetime.combine(first_monday, time.min).isoformat(timespec="seconds")
-        end_exclusive = datetime.combine(monday + timedelta(days=7), time.min)
+        end_exclusive = datetime.combine(today + timedelta(days=1), time.min)
         end_iso = end_exclusive.isoformat(timespec="seconds")
         end_date_exclusive = end_exclusive.strftime("%Y-%m-%d")
 
@@ -2602,20 +2751,40 @@ class DB:
         }
         fallback_rows = self._conn.execute(
             "SELECT date, keyboard, mouse FROM daily_totals "
-            "WHERE date>=? AND date<? "
-            "AND NOT EXISTS (SELECT 1 FROM interaction_buckets b "
-            "WHERE substr(b.started_at,1,10)=daily_totals.date)",
+            "WHERE date>=? AND date<?",
             (first_monday.strftime("%Y-%m-%d"), end_date_exclusive),
         ).fetchall()
         for d, k, m in fallback_rows:
             daily.setdefault(d, [int(k or 0), int(m or 0), None])
 
+        # Use the same collector coverage gate as personal_reference. An empty
+        # bucket set can mean zero observed events, or no observation at all.
+        coverage_days = self._conn.execute("""
+            WITH RECURSIVE days(day) AS (
+                SELECT date(?) UNION ALL
+                SELECT date(day, '+1 day') FROM days WHERE day < date(?)
+            ), clipped AS (
+                SELECT day, s.state,
+                       min(julianday(s.ended_at), julianday(day, '+1 day', 'utc'))
+                       - max(julianday(s.started_at), julianday(day, 'utc')) AS duration
+                FROM days JOIN observation_segments s
+                  ON s.started_at < date(day, '+1 day') AND s.ended_at >= day
+                WHERE s.component='collector' AND s.state IN ('running','unknown','degraded')
+            )
+            SELECT day, sum(CASE WHEN state='running' THEN duration ELSE 0 END), sum(duration)
+            FROM clipped WHERE duration > 0 GROUP BY day
+        """, (first_monday.isoformat(), today.isoformat())).fetchall()
+        coverage = {
+            day: coverage_result(expected * 86400, healthy * 86400, 0)["ratio"] or 0
+            for day, healthy, expected in coverage_days
+        }
         weeks_out = []
-        for offset in range(weeks):
+        for offset in range(history_weeks):
             week_start = first_monday + timedelta(days=7 * offset)
             week_end = week_start + timedelta(days=7)
             ws = datetime.combine(week_start, time.min).isoformat(timespec="seconds")
-            we = datetime.combine(week_end, time.min).isoformat(timespec="seconds")
+            elapsed_days = min(7, (today - week_start).days + 1)
+            we = datetime.combine(week_start + timedelta(days=elapsed_days), time.min).isoformat(timespec="seconds")
             fg_row = self._conn.execute(
                 "SELECT COALESCE(SUM(MAX(0, "
                 "(MIN(julianday(ended_at), julianday(?)) "
@@ -2626,10 +2795,15 @@ class DB:
             "AND julianday(ended_at)>julianday(?)",
             (we, ws, we, ws),
             ).fetchone()
-            keys = mouse = scroll = active_days = 0
-            for i in range(7):
+            keys = mouse = scroll = active_days = observed_days = qualified_days = 0
+            for i in range(elapsed_days):
                 d = (week_start + timedelta(days=i)).strftime("%Y-%m-%d")
                 row = daily.get(d)
+                ratio = coverage.get(d, 0)
+                if row or ratio > 0:
+                    observed_days += 1
+                if ratio >= 0.8 and (row is None or row[2] is not None):
+                    qualified_days += 1
                 if not row:
                     continue
                 if row[0] or row[1] or row[2]:
@@ -2641,12 +2815,26 @@ class DB:
             weeks_out.append({
                 "week_start": week_start.strftime("%Y-%m-%d"),
                 "week_end": (week_end - timedelta(days=1)).strftime("%Y-%m-%d"),
+                "through_date": (week_start + timedelta(days=elapsed_days - 1)).isoformat(),
                 "input_events": input_events,
                 "foreground_seconds": int(round(float(fg_row[0] or 0))),
                 "active_days": active_days,
-                "avg_daily_input": round(input_events / 7, 1) if input_events else 0,
+                "is_current": week_start == monday,
+                "elapsed_days": elapsed_days,
+                "observed_days": observed_days,
+                "qualified_days": qualified_days,
+                # Existing exports use captured totals per calendar day. Keep
+                # incomplete historical totals available, separately from the
+                # average that can support a comparison in the trend chart.
+                "avg_daily_input": round(input_events / elapsed_days, 1) if observed_days else None,
+                "qualified_daily_input": input_events / elapsed_days if qualified_days == elapsed_days else None,
             })
 
+        peers = [row["qualified_daily_input"] for row in weeks_out[-6:-2]]
+        week_reference = None
+        if all(value is not None for value in peers):
+            q1, _, q3 = statistics.quantiles(peers, n=4, method="inclusive")
+            week_reference = {"p25": q1, "p75": q3, "week_start": weeks_out[-2]["week_start"]}
         baseline = {}
         for metric_id, key in (
             ("IR-EVT-004", "input"),
@@ -2664,8 +2852,9 @@ class DB:
                 "n_valid_days": ref.get("n_valid_days", 0),
             }
         return {
-            "weeks": weeks_out,
+            "weeks": weeks_out[-weeks:],
             "baseline": baseline,
+            "week_reference": week_reference,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
         }
 

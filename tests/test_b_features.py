@@ -2,11 +2,12 @@
 import os
 import tempfile
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta
+from unittest.mock import patch
 from pathlib import Path
 
 from db import DB
-from interaction_rhythm.observations import local_now
+from interaction_rhythm.observations import InteractionBucket, local_now
 from interaction_rhythm.runtime_paths import DATA_DIR_ENV
 
 
@@ -48,6 +49,21 @@ class AppLabelTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["label"], "写作台")
 
+    def test_analysis_uses_the_selected_day_and_preserves_midnight_boundaries(self):
+        app = "Editor.exe"
+        self.db.add_session(app, "", "2024-06-04T23:50:00", "2024-06-05T00:10:00")
+        for timestamp, keys in [("2024-06-04T23:59:59.999999+08:00", 7), ("2024-06-05T00:00:00", 11)]:
+            self.db._conn.execute(
+                "INSERT INTO app_interactions (ts,app,keyboard,mouse) VALUES (?,?,?,0)",
+                (timestamp, app, keys),
+            )
+        record = self.db.app_analysis(app, 7, "2024-06-04")
+        self.assertEqual((record["date_start"], record["date_end"]), ("2024-05-29", "2024-06-04"))
+        self.assertEqual(record["responses"], 7)
+        self.assertEqual(record["selected_day_seconds"], 600)
+        self.assertEqual(record["interaction_heatmap"][-1]["hourly"][23]["responses"], 7)
+        self.assertEqual(self.db.app_analysis(app, 1, "2024-06-05")["responses"], 11)
+
     def test_app_detail_and_analysis_carry_label(self):
         now = local_now()
         start = (now - timedelta(minutes=5)).isoformat(timespec="seconds")
@@ -71,6 +87,47 @@ class TrendSummaryTests(unittest.TestCase):
     def tearDown(self):
         self.db.close()
         self.temp_dir.cleanup()
+
+    def _record_day(self, day, inputs=0):
+        self.db.add_observation_segment("collector", "running", day, day + timedelta(hours=8))
+        if inputs:
+            self.db.add_interaction_bucket(InteractionBucket(
+                started_at=day, ended_at=day + timedelta(seconds=1),
+                app="Fixture.exe", path="", keyboard_down_count=inputs,
+            ))
+
+    def test_open_week_and_missing_zero_and_archived_days(self):
+        monday = datetime(2026, 11, 16, 8).astimezone()
+        for i, inputs in enumerate([10, 20, 30]):
+            self._record_day(monday + timedelta(days=i), inputs)
+        self._record_day(monday + timedelta(days=5), 1000)  # future date
+        for i in range(1, 8):
+            self._record_day(monday - timedelta(days=i))
+        archive = (monday - timedelta(days=8)).date().isoformat()
+        self.db._conn.execute("INSERT INTO daily_totals VALUES(?,?,?,?,?)", (archive, 20, 3, 23, archive))
+        with patch("db.local_now", return_value=monday + timedelta(days=2, hours=5)):
+            empty, legacy, zero, current = self.db.trend_summary(4)["weeks"]
+        self.assertEqual((current["is_current"], current["elapsed_days"], current["through_date"]), (True, 3, "2026-11-18"))
+        self.assertEqual((current["input_events"], current["qualified_daily_input"]), (60, 20))
+        self.assertEqual((zero["qualified_days"], zero["active_days"], zero["qualified_daily_input"]), (7, 0, 0))
+        self.assertEqual((legacy["observed_days"], legacy["input_events"], legacy["qualified_daily_input"]), (1, 23, None))
+        self.assertEqual(legacy["avg_daily_input"], round(23 / 7, 1))
+        self.assertEqual((empty["observed_days"], empty["avg_daily_input"], empty["qualified_daily_input"]), (0, None, None))
+
+    def test_reference_uses_four_preceding_complete_qualified_weeks(self):
+        monday = datetime(2026, 11, 16, 8).astimezone()
+        first = monday - timedelta(weeks=5)
+        for index, daily in enumerate([10, 20, 30, 40, 500]):
+            for day in range(7):
+                self._record_day(first + timedelta(days=7*index+day), daily)
+        with patch("db.local_now", return_value=monday + timedelta(hours=10)):
+            trend = self.db.trend_summary(4)
+            self.assertEqual(trend["week_reference"], {
+                "p25": 17.5, "p75": 32.5, "week_start": "2026-11-09",
+            })
+            self.assertEqual(trend["weeks"][-2]["avg_daily_input"], 500)
+            self.db.add_observation_segment("collector", "degraded", first + timedelta(hours=8), first + timedelta(hours=12))
+            self.assertIsNone(self.db.trend_summary(4)["week_reference"])
 
     def test_trend_weekly_aggregation_and_baseline_shape(self):
         now = local_now()
