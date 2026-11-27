@@ -31,7 +31,7 @@ def main() -> int:
     if args.json_report:
         args.json_report.parent.mkdir(parents=True, exist_ok=True)
         args.json_report.write_text(rendered + "\n", encoding="utf-8")
-    print(rendered)
+    sys.stdout.buffer.write((rendered + "\n").encode("utf-8"))
     return 0 if report["passed"] else 1
 
 

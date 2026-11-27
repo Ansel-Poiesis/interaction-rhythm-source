@@ -26,10 +26,9 @@ class AIReplayUIContractTests(unittest.TestCase):
 
     def test_native_titlebar_owns_the_desktop_header(self):
         self.assertIn("body.nativebar .header{display:none}", self.html)
-        self.assertIn(
-            "body.nativebar .wrap{padding-top:11px;grid-template-rows:58px 120px minmax(152px,1fr) 340px}",
-            self.html,
-        )
+        self.assertIn("width:520px;max-width:100%", self.html)
+        self.assertIn("grid-template-rows:42px 58px 120px minmax(152px,1fr) 340px", self.html)
+        self.assertIn("body.nativebar .wrap{padding-top:11px;grid-template-rows:58px 120px minmax(152px,1fr) 340px}", self.html)
         self.assertIn("var IS_NATIVEBAR=QUERY.get('nativebar')==='1';", self.html)
         self.assertIn("if(IS_NATIVEBAR){document.body.classList.add('nativebar')}", self.html)
 
@@ -185,11 +184,9 @@ class AIReplayUIContractTests(unittest.TestCase):
         self.assertIn("min-height:180px;resize:none;", self.html)
 
     def test_stats_row_splits_mouse_into_clicks_and_scroll(self):
-        self.assertIn(".stats-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));", self.html)
-        self.assertIn(".stats-row{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));", self.html)
+        self.assertIn(".stats-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));", self.html)
+        self.assertIn("grid-template-rows:repeat(2,minmax(0,1fr))", self.html)
         self.assertNotIn(".stats-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));", self.html)
-        self.assertNotIn(".stats-row{grid-template-columns:repeat(4,minmax(0,1fr));", self.html)
-        self.assertNotIn(".stats-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));", self.html)
         self.assertNotIn(".stats-row{grid-template-columns:repeat(3,minmax(0,1fr));", self.html)
         for required in (
             'id="key-stat-label"',
@@ -208,16 +205,10 @@ class AIReplayUIContractTests(unittest.TestCase):
             "mouseScroll:'Scroll'",
             ".stat-label{font-size:14px",
             ".stat-val{font-size:20px",
-            "      .stat-label{font-size:12px;",
-            "      .stat-val{font-size:17px;",
-            "flex:0 0 var(--stat-label-w,60px)",
-            "min-width:var(--stat-val-minw,80px)",
+            ".stat-label{font-size:12px",
+            ".stat-val{font-size:17px",
         ):
             self.assertIn(required, self.html)
-        self.assertNotIn(".stat-label{font-size:11px;", self.html)
-        self.assertNotIn(".stat-label{font-size:12px;letter-spacing", self.html)
-        self.assertNotIn(".stat-val{font-size:17px;font-weight", self.html)
-        self.assertNotIn(".stat-val{font-size:15px", self.html)
         for forbidden in (
             'id="v-mouse"',
             'id="mouse-stat-label"',

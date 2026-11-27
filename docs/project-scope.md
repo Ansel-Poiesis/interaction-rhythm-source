@@ -7,8 +7,8 @@
 - **名称：** 扣舷-数字节律
 - **公开源码：** [interaction-rhythm-source](https://github.com/Ansel-Poiesis/interaction-rhythm-source)
 - **主分支：** `main`
-- **源码标签：** `v0.1.0`
-- **源码对应应用版本：** `v0.1.0 / epoch 2`
+- **源码标签：** `v0.2.0`
+- **源码对应应用版本：** `v0.2.0 / epoch 2`
 - **许可：** 根目录 MIT；第三方材料按 `THIRD_PARTY_NOTICES.md` 中所列许可。
 - **当前发行内容：** 源码、测试和说明文档；不含 Windows 安装器或便携运行包。
 

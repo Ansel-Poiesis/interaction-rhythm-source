@@ -4,7 +4,7 @@
 
 # 扣舷-数字节律 / Digital Rhythm
 
-<p>Windows desktop app · local-first personal informatics · <a href="LICENSE">MIT</a> · app/source v0.1.0 · by Ansel · <a href="https://keeppoiesis.com/">keeppoiesis.com</a></p>
+<p>Windows desktop app · local-first personal informatics · <a href="LICENSE">MIT</a> · app/source v0.2.0 · by Ansel · <a href="https://keeppoiesis.com/">keeppoiesis.com</a></p>
 
 <p align="center"><a href="https://www.bestpractices.dev/projects/16517"><img src="https://www.bestpractices.dev/projects/16517/baseline" alt="OpenSSF Baseline Level 1 badge"></a></p>
 
@@ -47,7 +47,7 @@
 
 ## 版本与下载
 
-v0.1.0 是扣舷-数字节律公开软件版本，运行时版本为 v0.1.0 / epoch 2。此公开版本仅提供源码；仓库当前没有 Windows 安装器或便携包。
+v0.2.0 是扣舷-数字节律当前公开软件版本，运行时版本为 v0.2.0 / epoch 2（详情见 [v0.2.0 发布说明](docs/releases/v0.2.0.md)）。此公开版本仅提供源码；仓库当前没有 Windows 安装器或便携包。
 
 本次源码 Release 不提供 Windows 安装包。旧公开分发仓库的 Release/tag 元数据已按权利人指示清除，提交历史保留；该仓库不再提供软件包。要使用当前源码，请按上文从源码构建。
 

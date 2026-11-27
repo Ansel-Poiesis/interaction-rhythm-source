@@ -4,6 +4,13 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const htmlPath = path.join(root, "static", "index.html");
 const html = fs.readFileSync(htmlPath, "utf8");
+const scriptOpenCount = (html.match(/<script\b/gi) || []).length;
+const scriptCloseCount = (html.match(/<\/script>/gi) || []).length;
+if (scriptOpenCount !== scriptCloseCount) {
+  throw new Error(
+    `Unbalanced script tags in index.html: ${scriptOpenCount} opening vs ${scriptCloseCount} closing`
+  );
+}
 
 // 1) 内联脚本（如保留的轻量片段）逐段做语法检查
 const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]

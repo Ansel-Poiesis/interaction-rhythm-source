@@ -155,7 +155,7 @@ def send_email(config, recipient, subject, text, body, message_id):
 class EmailReports:
     def __init__(self, db, *, send=send_email, seal=protect, unseal=unprotect, clock=time.time):
         self.db, self.send, self.seal, self.unseal, self.clock = db, send, seal, unseal, clock
-        self.path = db._path.parent / "email-reports.json"
+        self.path = db.path.parent / "email-reports.json"
         self.lock = threading.RLock()
         self.challenge = None
         self.previews = {}

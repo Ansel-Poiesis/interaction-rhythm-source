@@ -130,7 +130,15 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(Handler.service.application_detail(a, d))
         elif path == "/api/app-analysis":
             days = _safe_int(params.get("days", "7"), 7)
-            self._json(Handler.service.application_analysis(params.get("app", ""), days))
+            from datetime import date
+            end_date = params.get("date", "")
+            if end_date:
+                try:
+                    end_date = date.fromisoformat(end_date).isoformat()
+                except ValueError:
+                    self._json({"error": "Invalid date"}, status=400)
+                    return
+            self._json(Handler.service.application_analysis(params.get("app", ""), days, end_date))
         elif path == "/api/export":
             if not self._authorize_command():
                 return

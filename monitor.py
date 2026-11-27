@@ -557,7 +557,20 @@ class WindowMonitor:
         watchdog_interval = max(5.0, POLL_INTERVAL * 10)
         heartbeat_at = time.monotonic()
         while not self._stop.wait(watchdog_interval):
-            self._observe()
+            try:
+                self._observe()
+            except Exception as exc:
+                # 与 SystemStateMonitor._loop 同防护：观察失败不得杀死看门狗线程
+                # 捕获异常并记录 degraded 状态后继续下一轮，避免单次错误终止采集。
+                try:
+                    self._db.record_collector_state(
+                        "foreground_watcher",
+                        "degraded",
+                        detail=f"observe_failed:{str(exc)[:120]}",
+                    )
+                except Exception:
+                    pass
+                continue
             if time.monotonic() - heartbeat_at >= 30:
                 self._db.record_collector_state(
                     "foreground_watcher",
@@ -967,7 +980,17 @@ class SystemStateMonitor:
 
     def _loop(self):
         while not self._stop.wait(1.0):
-            self._tick(local_now(), time.monotonic())
+            try:
+                self._tick(local_now(), time.monotonic())
+            except Exception as exc:
+                # 单次 tick 异常（如瞬时 SQLite 错误）不得终止系统状态监控线程，
+                # 造成之后数小时输入持续落库、system 健康区间却静默缺失。失败必须留痕并继续。
+                try:
+                    self._db.record_collector_state(
+                        "system", "degraded", local_now(), f"tick_failed:{str(exc)[:120]}"
+                    )
+                except Exception:
+                    pass
 
     def stop(self):
         self._stop.set()

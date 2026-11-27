@@ -17,8 +17,8 @@ class BrandContractTests(unittest.TestCase):
             r"Local\Kouxian.DigitalRhythm.SingleInstance",
         )
 
-    def test_public_application_version_matches_initial_release(self):
-        self.assertEqual(config.APP_VERSION, "0.1.0")
+    def test_public_application_version_matches_release(self):
+        self.assertEqual(config.APP_VERSION, "0.2.0")
         self.assertEqual(config.APP_VERSION_EPOCH, 2)
 
     def test_source_builds_have_no_update_feed_by_default(self):
@@ -29,6 +29,9 @@ class BrandContractTests(unittest.TestCase):
         index_html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("<title>扣舷-数字节律</title>", index_html)
         self.assertIn("扣舷而歌", (ROOT / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("by Ansel", index_html)
+        self.assertIn("keeppoiesis.com", index_html)
+        self.assertIn("openCreatorWebsite", (ROOT / "static" / "app.js").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
